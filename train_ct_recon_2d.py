@@ -2,6 +2,7 @@ import os
 import argparse
 import shutil
 
+import wandb
 import torch
 import torch.backends.cudnn as cudnn
 import tensorboardX
@@ -11,13 +12,14 @@ import numpy as np
 from networks import Positional_Encoder, SIREN
 from utils import get_config, prepare_sub_folder, get_data_loader, save_image_2d
 from skimage.metrics import structural_similarity as compare_ssim
-
+import matplotlib.pyplot as plt
+import matplotlib
 import gc
 torch.cuda.empty_cache()
 gc.collect()
 import warnings
 warnings.filterwarnings("ignore")
-
+matplotlib.use('TkAgg')
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, default='', help='Path to the config file.')
 parser.add_argument('--output_path', type=str, default='.', help="outputs path")
@@ -68,6 +70,22 @@ data_loader = get_data_loader(config['data'], config['img_path'], config['img_si
 ct_projector_full_view_512 = FanBeam2DProjector(config['img_size'], config['num_proj_full_view_512'])
 ct_projector_sparse_view_128 = FanBeam2DProjector(config['img_size'], config['num_proj_sparse_view_128'])
 ct_projector_sparse_view_64 = FanBeam2DProjector(config['img_size'], config['num_proj_sparse_view_64'])
+
+wandb.init(
+    # set the wandb project where this run will be logged
+    project="ct-image-reconstruction",
+
+    # track hyperparameters and run metadata
+    config={
+    "learning_rate": config['lr'],
+    "architecture": config['model'],
+    "dataset": config['data'],
+    "epochs": config['max_iter'],
+    "fourier feature standard deviation" : config['encoder']['scale'],
+    "img size" : config['img_size'],
+    "batch size" : config['batch_size'],
+    }
+)
 
 for it, (grid, image) in enumerate(data_loader):
     # Input coordinates (x,y) grid and target image
@@ -126,7 +144,7 @@ for it, (grid, image) in enumerate(data_loader):
             train_writer.add_scalar('train_loss', train_loss, iterations + 1)
             train_writer.add_scalar('train_psnr', train_psnr, iterations + 1)
             print("[Iteration: {}/{}] Train loss: {:.4g} | Train psnr: {:.4g}".format(iterations + 1, max_iter, train_loss, train_psnr))
-
+            
         # Compute testing psnr
         if iterations == 0 or (iterations + 1) % config['val_iter'] == 0:
             model.eval()
@@ -144,7 +162,7 @@ for it, (grid, image) in enumerate(data_loader):
             train_writer.add_scalar('test_psnr', test_psnr, iterations + 1)
             save_image_2d(test_output, os.path.join(image_directory, "recon_{}_{:.4g}dB_ssim{:.4g}.png".format(iterations + 1, test_psnr, test_ssim)))
             print("[Validation Iteration: {}/{}] Test loss: {:.4g} | Test psnr: {:.4g} | Test ssim: {:.4g}".format(iterations + 1, max_iter, test_loss, test_psnr, test_ssim))
-        
+            wandb.log({"acc": test_ssim, "loss": test_loss})
         # Save final model
                 
         model_name = os.path.join(checkpoint_directory, 'model_%06d.pt' % (iterations + 1))
@@ -176,6 +194,11 @@ for it, (grid, image) in enumerate(data_loader):
     fbp_prior_128 = fbp_prior_128.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
     fbp_prior_64 = fbp_prior_64.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
 
+    save_image_2d(fbp_prior_512, os.path.join(image_directory, "fbp_prior_512.png"))
+    save_image_2d(fbp_prior_128, os.path.join(image_directory, "fbp_prior_128.png"))
+    save_image_2d(fbp_prior_64, os.path.join(image_directory, "fbp_prior_64.png"))
+
+
     streak_prior_64 = streak_prior_64.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
     streak_prior_128 = streak_prior_128.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
 
@@ -189,5 +212,69 @@ for it, (grid, image) in enumerate(data_loader):
     corrected_image_128 = fbp_recon_128 - streak_prior_128
     corrected_image_64 = fbp_recon_64 - streak_prior_64
 
-    save_image_2d(streak_prior_64, os.path.join(image_directory, "corrected_image_64.png"))
-    save_image_2d(streak_prior_128, os.path.join(image_directory, "corrected_image_128.png"))
+    save_image_2d(corrected_image_64, os.path.join(image_directory, "corrected_image_64.png"))
+    save_image_2d(corrected_image_128, os.path.join(image_directory, "corrected_image_128.png"))
+
+    result_ssim_128 = compare_ssim(corrected_image_128.transpose(1,3).squeeze().cpu().numpy(), test_data[1].transpose(1,3).squeeze().cpu().numpy(), multichannel=True)
+    result_ssim_64 = compare_ssim(corrected_image_64.transpose(1,3).squeeze().cpu().numpy(), test_data[1].transpose(1,3).squeeze().cpu().numpy(), multichannel=True)
+    
+    print(f'Result SSIM 128: {result_ssim_128}, Results SSIM 64: {result_ssim_64}')
+    plt.gray()
+    f, axarr = plt.subplots(4,1) 
+    
+    # use the created array to output your multiple images. In this case I have stacked 4 images vertically
+    recon512 = plt.imread(os.path.join(image_directory, 'fbprecon_512.png'))
+    recon128 = plt.imread(os.path.join(image_directory, 'fbprecon_128.png'))
+    recon64 = plt.imread(os.path.join(image_directory, 'fbprecon_64.png'))
+    orig = plt.imread(os.path.join(image_directory, 'test.png'))
+    
+    axarr[0].imshow(orig)    
+    axarr[1].imshow(recon512)    
+    axarr[2].imshow(recon128)
+    axarr[3].imshow(recon64)
+
+    axarr[0].set_title('Test Image', fontstyle='italic')
+    axarr[1].set_title('FBP Reconstruction - 512 Projections', fontstyle='italic')
+    axarr[2].set_title('FBP Reconstruction - 128 Projections', fontstyle='italic')
+    axarr[3].set_title('FBP Reconstruction - 64 Projections', fontstyle='italic')
+    
+    f1, axarr1 = plt.subplots(4,1) 
+    
+    # use the created array to output your multiple images. In this case I have stacked 4 images vertically
+    prior_plt = plt.imread(os.path.join(image_directory, 'prior.png'))
+    fbp_prior_512_plt = plt.imread(os.path.join(image_directory, 'fbp_prior_512.png'))
+    fbp_prior_128_plt = plt.imread(os.path.join(image_directory, 'fbp_prior_128.png'))
+    fbp_prior_64_plt = plt.imread(os.path.join(image_directory, 'fbp_prior_64.png'))
+    
+    axarr1[0].imshow(prior_plt)    
+    axarr1[1].imshow(fbp_prior_512_plt)    
+    axarr1[2].imshow(fbp_prior_128_plt)
+    axarr1[3].imshow(fbp_prior_64_plt)
+
+    axarr1[0].set_title(f'Prior Image {model_name}', fontstyle='italic')
+    axarr1[1].set_title('FBP Prior Reconstruction - 512 Projections', fontstyle='italic')
+    axarr1[2].set_title('FBP Prior Reconstruction - 128 Projections', fontstyle='italic')
+    axarr1[3].set_title('FBP Prior Reconstruction - 64 Projections', fontstyle='italic')
+
+
+
+   
+    f2, axarr2 = plt.subplots(4,1) 
+    
+    # use the created array to output your multiple images. In this case I have stacked 4 images vertically
+    streak_prior_64_plt = plt.imread(os.path.join(image_directory, 'streak_prior_64.png'))
+    streak_prior_128_plt = plt.imread(os.path.join(image_directory, 'streak_prior_128.png'))
+    corrected_image_64_plt = plt.imread(os.path.join(image_directory, 'corrected_image_64.png'))
+    corrected_image_128_plt = plt.imread(os.path.join(image_directory, 'corrected_image_128.png'))
+
+    
+    axarr2[0].imshow(streak_prior_64_plt)    
+    axarr2[1].imshow(streak_prior_128_plt)    
+    axarr2[2].imshow(corrected_image_64_plt)
+    axarr2[3].imshow(corrected_image_128_plt)
+
+    axarr2[0].set_title('Streak Image - (64 Proj - 512 Proj)', fontstyle='italic')
+    axarr2[1].set_title('Streak Image - (128 Proj - 512 Proj)', fontstyle='italic')
+    axarr2[2].set_title('Corrected Image - 64 Projections', fontstyle='italic')
+    axarr2[3].set_title('Corrected Image - 128 Projections', fontstyle='italic')
+    plt.show()# what
