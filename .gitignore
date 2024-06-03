@@ -1,7 +1,11 @@
 *
 !ct_2d_projector.py
-!networks.py
-!train_ct_recon_2d.py
-!utils.py
-!configs/train_ct_recon_2d.yaml
+!ner/networks.py
+!ner/train_ct_recon_2d.py
+!ner/utils.py
+!ner/configs/train_ct_recon_2d.yaml
 !test.sh
+!/ner
+!ddp_train.py
+!ddp.sh
+
