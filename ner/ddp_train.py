@@ -88,6 +88,8 @@ def train(opts, model, device, train_loader, optimizer, scheduler):
 
         projs_128 = ct_projector_sparse_view_128.forward_project(image.transpose(1, 3).squeeze(1))  
         fbp_recon_128 = ct_projector_sparse_view_128.backward_project(projs_128) 
+        
+        batch_projections = np.array_split(projs_128, config['batch_size'])
 
         projs_64 = ct_projector_sparse_view_64.forward_project(image.transpose(1, 3).squeeze(1))  
         fbp_recon_64 = ct_projector_sparse_view_64.backward_project(projs_64)  
@@ -109,6 +111,7 @@ def train(opts, model, device, train_loader, optimizer, scheduler):
 
         save_image_2d(fbp_recon_128, os.path.join(image_directory, "fbprecon_128.png"))
         save_image_2d(fbp_recon_64, os.path.join(image_directory, "fbprecon_64.png"))
+        
         data, target = grid.to(device), train_data[0].to(device)
         loss_fn = torch.nn.MSELoss().to("cuda")
         optim = torch.optim.Adam(model.parameters(), lr=config['lr'], betas=(config['beta1'], config['beta2']), weight_decay=config['weight_decay'])
@@ -260,13 +263,29 @@ def main():
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
     torch.cuda.set_device(local_rank)
     print(f"host: {gethostname()}, rank: {rank}, local_rank: {local_rank}")
+    
+    for batch_idx, (data, target) in enumerate(data_loader):
+        
+        # Input coordinates (x,y) grid and target image
+        grid = data.cuda()  # [bs, x, y, 3], [0, 1]
+        image = target.cuda()  # [bs, x, y, 1], [0, 1]
 
-    train_sampler = torch.utils.data.distributed.DistributedSampler(config['data'],
+        save_image_2d(grid, os.path.join(image_directory, "grid_init.png"))
+        projs_512 = ct_projector_full_view_512.forward_project(image.transpose(1, 3).squeeze(1)) 
+        fbp_recon_512 = ct_projector_full_view_512.backward_project(projs_512) 
+
+        projs_128 = ct_projector_sparse_view_128.forward_project(image.transpose(1, 3).squeeze(1))  
+        fbp_recon_128 = ct_projector_sparse_view_128.backward_project(projs_128) 
+        
+        batch_projections = np.array_split(projs_128, config['batch_size'])
+        
+    dataset = batch_projections
+    train_sampler = torch.utils.data.distributed.DistributedSampler(dataset,
                                                                     num_replicas=world_size,
                                                                     rank=rank)
     
   
-    data_loader = get_data_loader(data=config['data'],
+    data_loader = get_data_loader(dataset,
                                   img_path=config['img_path'], 
                                   img_dim=config['img_size'], 
                                   sampler=train_sampler,

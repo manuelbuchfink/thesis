@@ -25,7 +25,7 @@ def prepare_sub_folder(output_directory):
 
 
 
-def get_data_loader(data, 
+def get_train_loader(data, 
                     img_path, 
                     img_dim, 
                     img_slice, 
@@ -50,6 +50,27 @@ def get_data_loader(data,
                         num_workers=num_workers,
                         sampler=sampler,
                         pin_memory=pin_memory
+                        )
+    return loader
+
+def get_data_loader(data, 
+                    img_path, 
+                    img_dim, 
+                    img_slice, 
+                    train,                     
+                    batch_size, 
+                    return_data_idx=False):
+    
+    if data == 'phantom':
+        dataset = ImageDataset(img_path, img_dim)
+    elif '3d' in data:
+        dataset = ImageDataset_3D(img_path, img_dim)
+    else:
+        dataset = ImageDataset_2D(img_path, img_dim, img_slice)
+
+    loader = DataLoader(dataset=dataset, 
+                        batch_size=batch_size, 
+                        shuffle=train, 
                         )
     return loader
 

@@ -102,7 +102,7 @@ for it, (grid, image) in enumerate(data_loader):
     grid = grid.cuda()  # [bs, x, y, 3], [0, 1]
     image = image.cuda()  # [bs, x, y, 1], [0, 1]
 
-    save_image_2d(grid, os.path.join(image_directory, "grid_init.png"))
+    
     projs_512 = ct_projector_full_view_512.forward_project(image.transpose(1, 3).squeeze(1)) 
     fbp_recon_512 = ct_projector_full_view_512.backward_project(projs_512) 
 
@@ -117,19 +117,22 @@ for it, (grid, image) in enumerate(data_loader):
     train_proj64 = projs_64[..., np.newaxis] #add dim for image save
     # Data loading
     test_data = (grid, image)
-    train_data = (grid, projs_64) # train on sparse view image (128 projs)
+    train_data = (grid, projs_128) # train on sparse view image (128 projs)
 
     save_image_2d(test_data[1], os.path.join(image_directory, "test.png"))
     save_image_2d(train_projs, os.path.join(image_directory, "train.png"))
     save_image_2d(train_proj128, os.path.join(image_directory, "train128.png"))
     save_image_2d(train_proj64, os.path.join(image_directory, "train64.png"))
-    
+    print(f"dataset shape: {fbp_recon_128.shape}")
     fbp_recon_128 = fbp_recon_128.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
     fbp_recon_64 = fbp_recon_64.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
-
+    print(f"dataset shape2: {fbp_recon_128.shape}")
     save_image_2d(fbp_recon_128, os.path.join(image_directory, "fbprecon_128.png"))
     save_image_2d(fbp_recon_64, os.path.join(image_directory, "fbprecon_64.png"))
-
+    '''
+    split projection into N parts
+    '''
+    
 
      # Train model
     for iterations in range(max_iter):
@@ -137,9 +140,15 @@ for it, (grid, image) in enumerate(data_loader):
         optim.zero_grad()
 
         train_embedding = encoder.embedding(train_data[0])  #  fourier feature embedding
+        '''
+        for rank in ranks: 
+            model_rank_i(train_embedding_rank_i)
+                
+        
+        '''
         train_output = model(train_embedding)               #  train model on grid
 
-        train_projs = ct_projector_sparse_view_64.forward_project(train_output.transpose(1, 3).squeeze(1)).to("cuda")    # evaluate by forward projecting
+        train_projs = ct_projector_sparse_view_128.forward_project(train_output.transpose(1, 3).squeeze(1)).to("cuda")    # evaluate by forward projecting
         train_loss = (0.5 * loss_fn(train_projs.to("cuda"), train_data[1].to("cuda")))                                   # compare forward projected grid with sparse view projection
      
         train_loss.backward()
