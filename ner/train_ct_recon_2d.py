@@ -102,54 +102,32 @@ for it, (grid, image) in enumerate(data_loader):
     grid = grid.cuda()  # [bs, x, y, 3], [0, 1]
     image = image.cuda()  # [bs, x, y, 1], [0, 1]
 
-    
-    projs_512 = ct_projector_full_view_512.forward_project(image.transpose(1, 3).squeeze(1)) 
-    fbp_recon_512 = ct_projector_full_view_512.backward_project(projs_512) 
-
     projs_128 = ct_projector_sparse_view_128.forward_project(image.transpose(1, 3).squeeze(1))  
     fbp_recon_128 = ct_projector_sparse_view_128.backward_project(projs_128) 
 
     projs_64 = ct_projector_sparse_view_64.forward_project(image.transpose(1, 3).squeeze(1))  
     fbp_recon_64 = ct_projector_sparse_view_64.backward_project(projs_64)  
     
-    train_projs = projs_512[..., np.newaxis] #add dim for image save
-    train_proj128 = projs_128[..., np.newaxis] #add dim for image save
-    train_proj64 = projs_64[..., np.newaxis] #add dim for image save
-    # Data loading
-    test_data = (grid, image)
-    train_data = (grid, projs_128) # train on sparse view image (128 projs)
-
-    save_image_2d(test_data[1], os.path.join(image_directory, "test.png"))
-    save_image_2d(train_projs, os.path.join(image_directory, "train.png"))
-    save_image_2d(train_proj128, os.path.join(image_directory, "train128.png"))
-    save_image_2d(train_proj64, os.path.join(image_directory, "train64.png"))
-    print(f"dataset shape: {fbp_recon_128.shape}")
+    train_proj128 = projs_128[..., np.newaxis] #add dim for image save 
+      
     fbp_recon_128 = fbp_recon_128.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
-    fbp_recon_64 = fbp_recon_64.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
-    print(f"dataset shape2: {fbp_recon_128.shape}")
-    save_image_2d(fbp_recon_128, os.path.join(image_directory, "fbprecon_128.png"))
-    save_image_2d(fbp_recon_64, os.path.join(image_directory, "fbprecon_64.png"))
-    '''
-    split projection into N parts
-    '''
-    
+    fbp_recon_64 = fbp_recon_64.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]   
 
-     # Train model
+    save_image_2d(image, os.path.join(image_directory, "test.png"))
+    save_image_2d(train_proj128, os.path.join(image_directory, "train128.png"))
+    save_image_2d(fbp_recon_128, os.path.join(image_directory, "fbprecon_128.png"))
+
+
+    # Train model
     for iterations in range(max_iter):
         model.train()
         optim.zero_grad()
 
-        train_embedding = encoder.embedding(train_data[0])  #  fourier feature embedding
-        '''
-        for rank in ranks: 
-            model_rank_i(train_embedding_rank_i)
-                
-        
-        '''
-        train_output = model(train_embedding)               #  train model on grid
+        train_embedding = encoder.embedding(grid)  #  fourier feature embedding     
+        train_output = model(train_embedding)      #  train model on grid
 
         train_projs = ct_projector_sparse_view_128.forward_project(train_output.transpose(1, 3).squeeze(1)).to("cuda")    # evaluate by forward projecting
-        train_loss = (0.5 * loss_fn(train_projs.to("cuda"), train_data[1].to("cuda")))                                   # compare forward projected grid with sparse view projection
+        train_loss = (0.5 * loss_fn(train_projs.to("cuda"), projs_128.to("cuda")))                                   # compare forward projected grid with sparse view projection
      
         train_loss.backward()
         optim.step()
@@ -166,19 +144,20 @@ for it, (grid, image) in enumerate(data_loader):
         if iterations == 0 or (iterations + 1) % config['val_iter'] == 0:
             model.eval()
             with torch.no_grad():
-                test_embedding = encoder.embedding(test_data[0]) # fourier feature embedding
+                test_embedding = encoder.embedding(grid) # fourier feature embedding
                 test_output = model(test_embedding)              # train model on grid
-                save_image_2d(test_data[0], os.path.join(image_directory, f"grid_{iterations}.png"))
-                test_loss = 0.5 * loss_fn(test_output.to("cuda"), test_data[1].to("cuda")) # compare grid with test image
+
+                test_loss = 0.5 * loss_fn(test_output.to("cuda"), image.to("cuda")) # compare grid with test image
                 test_psnr = - 10 * torch.log10(2 * test_loss).item()
                 test_loss = test_loss.item()
-                test_ssim = compare_ssim(test_output.transpose(1,3).squeeze().cpu().numpy(), test_data[1].transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+                test_ssim = compare_ssim(test_output.transpose(1,3).squeeze().cpu().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
 
             train_writer.add_scalar('test_loss', test_loss, iterations + 1)
             train_writer.add_scalar('test_psnr', test_psnr, iterations + 1)
             save_image_2d(test_output, os.path.join(image_directory, "recon_{}_{:.4g}dB_ssim{:.4g}.png".format(iterations + 1, test_psnr, test_ssim)))
             print("[Validation Iteration: {}/{}] Test loss: {:.4g} | Test psnr: {:.4g} | Test ssim: {:.4g}".format(iterations + 1, max_iter, test_loss, test_psnr, test_ssim))
             wandb.log({"ssim": test_ssim, "loss": test_loss, "psnr": test_psnr})
+
     
     # Save final model            
     model_name = os.path.join(checkpoint_directory, 'model_%06d.pt' % (iterations + 1))
@@ -233,7 +212,7 @@ for it, (grid, image) in enumerate(data_loader):
     Compute Corrected image
 
     '''
-    diff_image = test_data[1] - prior;
+    diff_image = image - prior;
     save_image_2d(diff_image, os.path.join(image_directory, "test_minus_prior.png"))
     corrected_image_128 = fbp_recon_128 - streak_prior_128
     corrected_image_64 = fbp_recon_64 - streak_prior_64

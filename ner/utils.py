@@ -4,7 +4,7 @@ import yaml
 from torch.utils.data import DataLoader
 import torchvision.utils as vutils
 
-from data import ImageDataset, ImageDataset_2D, ImageDataset_3D
+from data import ImageDataset, ImageDataset_2D
 
 
 
@@ -36,12 +36,8 @@ def get_train_loader(data,
                     pin_memory, 
                     return_data_idx=False):
     
-    if data == 'phantom':
-        dataset = ImageDataset(img_path, img_dim)
-    elif '3d' in data:
-        dataset = ImageDataset_3D(img_path, img_dim)
-    else:
-        dataset = ImageDataset_2D(img_path, img_dim, img_slice)
+
+    dataset = ImageDataset_2D(img_path, img_dim, img_slice)
 
     loader = DataLoader(dataset=dataset, 
                         batch_size=batch_size, 
@@ -61,12 +57,8 @@ def get_data_loader(data,
                     batch_size, 
                     return_data_idx=False):
     
-    if data == 'phantom':
-        dataset = ImageDataset(img_path, img_dim)
-    elif '3d' in data:
-        dataset = ImageDataset_3D(img_path, img_dim)
-    else:
-        dataset = ImageDataset_2D(img_path, img_dim, img_slice)
+
+    dataset = ImageDataset_2D(img_path, img_dim, img_slice)
 
     loader = DataLoader(dataset=dataset, 
                         batch_size=batch_size, 

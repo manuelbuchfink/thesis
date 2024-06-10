@@ -103,26 +103,64 @@ for it, (grid, image) in enumerate(data_loader):
     
     projs_128 = ct_projector_sparse_view_128.forward_project(image.transpose(1, 3).squeeze(1))  
     fbp_recon_128 = ct_projector_sparse_view_128.backward_project(projs_128) 
-    
+    print(f"shape of proj128: {projs_128.shape}")
     for iterations in range(max_iter):
-        train_loss_view = 0
-        print(len(projs_128[0]))
-        for view in range(len(projs_128[0])):        
-            # print(projs_128[0][view])
-            # print(projs_128[0][view].shape)
-            model.train()
-            optim.zero_grad()
+        train_loss_view = 0   
+        
+        for view in projs_128[0,:,:]:   # view.shape = [512], projs_128[0,:,:].shape = [128,512]      
+        
+            # model.train()
+            # optim.zero_grad()
             
-            #train_embedding = encoder.embedding(view)
-            train_output = model(projs_128[0][view])
-            train_loss_view += 0.5 * loss_fn(train_output.to("cuda"), projs_128[0][view].to("cuda"))
+            # #train_embedding = encoder.embedding(projs_128[view])
+            # #print(f"shape of embedding: {train_embedding.shape}")
+            # print(f"shape of view: {view.shape}")
+            # train_output = model(view)
+
+            # print(f"shape of output: {train_output.shape}")
+            # #print(f"view_trained: {train_output}, view_value: {projs_128[0][view]}")
+            # #train_projs = ct_projector_sparse_view_128.forward_project(train_output.transpose(1, 3).squeeze(1)).to("cuda")
+            # train_loss_view += 0.5 * loss_fn(train_output.to("cuda"), view.to("cuda"))
             
-        train_loss_view = 1/len(projs_128[0]) * train_loss_view
-        train_loss_view.backward()
+        train_loss= 1/len(projs_128) * train_loss_view
+        print(train_loss)
+        train_loss.backward()
         optim.step()
         
-    embedding = encoder.embedding(grid)    
-    prior = model(embedding)
+        # Compute training psnr
+        if (iterations + 1) % config['log_iter'] == 0:
+            train_psnr = -10 * torch.log10(2 * train_loss).item()
+            train_loss = train_loss.item()
+            train_writer.add_scalar('train_loss', train_loss, iterations + 1)
+            train_writer.add_scalar('train_psnr', train_psnr, iterations + 1)
+            print("[Iteration: {}/{}] Train loss: {:.4g} | Train psnr: {:.4g}".format(iterations + 1, max_iter, train_loss, train_psnr))
+            wandb.log({"loss": train_loss})
+        # Compute testing psnr
+        if iterations == 0 or (iterations + 1) % config['val_iter'] == 0:
+            model.eval()
+            with torch.no_grad():
+                test_embedding = encoder.embedding(grid) # fourier feature embedding
+                test_output = model(test_embedding)              # train model on grid                
+                test_loss = 0.5 * loss_fn(test_output.to("cuda"), image.to("cuda")) # compare grid with test image
+                test_psnr = - 10 * torch.log10(2 * test_loss).item()
+                test_loss = test_loss.item()
+                test_ssim = compare_ssim(test_output.transpose(1,3).squeeze().cpu().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+
+            train_writer.add_scalar('test_loss', test_loss, iterations + 1)
+            train_writer.add_scalar('test_psnr', test_psnr, iterations + 1)
+            save_image_2d(test_output, os.path.join(image_directory, "recon_{}_{:.4g}dB_ssim{:.4g}.png".format(iterations + 1, test_psnr, test_ssim)))
+            print("[Validation Iteration: {}/{}] Test loss: {:.4g} | Test psnr: {:.4g} | Test ssim: {:.4g}".format(iterations + 1, max_iter, test_loss, test_psnr, test_ssim))
+            wandb.log({"ssim": test_ssim, "loss": test_loss, "psnr": test_psnr})
+    
+    # Save final model            
+    model_name = os.path.join(checkpoint_directory, 'model_%06d.pt' % (iterations + 1))
+    torch.save({'net': model.state_dict(), \
+                'enc': encoder.B, \
+                'opt': optim.state_dict(), \
+                }, model_name)
+    
+ 
+    prior = test_output
     
     print(prior.shape)
     save_image_2d(prior, os.path.join(image_directory, "prior.png"))
