@@ -99,19 +99,18 @@ wandb.init(
 
 for it, (grid, image) in enumerate(data_loader):
     # Input coordinates (x,y) grid and target image
-    grid = grid.cuda()  # [bs, x, y, 3], [0, 1]
-    image = image.cuda()  # [bs, x, y, 1], [0, 1]
+    grid = grid.cuda()      # [1, x, y, 2], [0, 1]
+    image = image.cuda()    # [1, x, y, 1], [0, 1]
 
-    projs_128 = ct_projector_sparse_view_128.forward_project(image.transpose(1, 3).squeeze(1))  
-    fbp_recon_128 = ct_projector_sparse_view_128.backward_project(projs_128) 
+    projs_128 = ct_projector_sparse_view_128.forward_project(image.transpose(1, 3).squeeze(1))  # ([1, y, x])        -> [1, num_proj, x]
+    fbp_recon_128 = ct_projector_sparse_view_128.backward_project(projs_128)                    # ([1, num_proj, x]) -> [1, y, x]
 
-    projs_64 = ct_projector_sparse_view_64.forward_project(image.transpose(1, 3).squeeze(1))  
+    projs_64 = ct_projector_sparse_view_64.forward_project(image.transpose(1, 3).squeeze(1))
     fbp_recon_64 = ct_projector_sparse_view_64.backward_project(projs_64)  
     
-    train_proj128 = projs_128[..., np.newaxis] #add dim for image save 
-      
-    fbp_recon_128 = fbp_recon_128.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
-    fbp_recon_64 = fbp_recon_64.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]   
+    train_proj128 = projs_128[..., np.newaxis]                  # [1, num_proj, x, 1]
+    fbp_recon_128 = fbp_recon_128.unsqueeze(1).transpose(1, 3)  # [1, x, y, 1]
+    fbp_recon_64 = fbp_recon_64.unsqueeze(1).transpose(1, 3)     
 
     save_image_2d(image, os.path.join(image_directory, "test.png"))
     save_image_2d(train_proj128, os.path.join(image_directory, "train128.png"))
@@ -123,11 +122,11 @@ for it, (grid, image) in enumerate(data_loader):
         model.train()
         optim.zero_grad()
 
-        train_embedding = encoder.embedding(grid)  #  fourier feature embedding     
-        train_output = model(train_embedding)      #  train model on grid
+        train_embedding = encoder.embedding(grid)  #  fourier feature embedding:  ([1, x, y, 2] * [2, embedding_size]) -> [1, x, y, embedding_size]
+        train_output = model(train_embedding)      #  train model on grid:        ([1, x, y, embedding_size])          -> [1, x, y, 1]
 
-        train_projs = ct_projector_sparse_view_128.forward_project(train_output.transpose(1, 3).squeeze(1)).to("cuda")    # evaluate by forward projecting
-        train_loss = (0.5 * loss_fn(train_projs.to("cuda"), projs_128.to("cuda")))                                   # compare forward projected grid with sparse view projection
+        train_projs = ct_projector_sparse_view_128.forward_project(train_output.transpose(1, 3).squeeze(1)).to("cuda")      # evaluate by forward projecting
+        train_loss = (0.5 * loss_fn(train_projs.to("cuda"), projs_128.to("cuda")))                                          # compare forward projected grid with sparse view projection
      
         train_loss.backward()
         optim.step()
@@ -145,7 +144,7 @@ for it, (grid, image) in enumerate(data_loader):
             model.eval()
             with torch.no_grad():
                 test_embedding = encoder.embedding(grid) # fourier feature embedding
-                test_output = model(test_embedding)              # train model on grid
+                test_output = model(test_embedding)      # train model on grid
 
                 test_loss = 0.5 * loss_fn(test_output.to("cuda"), image.to("cuda")) # compare grid with test image
                 test_psnr = - 10 * torch.log10(2 * test_loss).item()
@@ -179,29 +178,29 @@ for it, (grid, image) in enumerate(data_loader):
     prior_diff = prior - prior_train
     save_image_2d(prior_diff, os.path.join(image_directory, "prior_diff.png"))
     
-    projs_prior_512 = ct_projector_full_view_512.forward_project(prior.transpose(1, 3).squeeze(1))  # [bs, n, w, z] -> [bs, n, h, w]
-    fbp_prior_512 = ct_projector_full_view_512.backward_project(projs_prior_512)  # [bs, n, h, w] -> [bs, x, y, z]
+    projs_prior_512 = ct_projector_full_view_512.forward_project(prior.transpose(1, 3).squeeze(1))  
+    fbp_prior_512 = ct_projector_full_view_512.backward_project(projs_prior_512)  
 
-    projs_prior_128 = ct_projector_sparse_view_128.forward_project(prior.transpose(1, 3).squeeze(1))  # [bs, n, w, z] -> [bs, n, h, w]
-    fbp_prior_128 = ct_projector_sparse_view_128.backward_project(projs_prior_128)  # [bs, n, h, w] -> [bs, x, y, z]
+    projs_prior_128 = ct_projector_sparse_view_128.forward_project(prior.transpose(1, 3).squeeze(1))  
+    fbp_prior_128 = ct_projector_sparse_view_128.backward_project(projs_prior_128) 
 
-    projs_prior_64 = ct_projector_sparse_view_64.forward_project(prior.transpose(1, 3).squeeze(1))  # [bs, n, w, z] -> [bs, n, h, w]
-    fbp_prior_64 = ct_projector_sparse_view_64.backward_project(projs_prior_64)  # [bs, n, h, w] -> [bs, x, y, z]
+    projs_prior_64 = ct_projector_sparse_view_64.forward_project(prior.transpose(1, 3).squeeze(1))
+    fbp_prior_64 = ct_projector_sparse_view_64.backward_project(projs_prior_64)  
     
     streak_prior_128 = fbp_prior_128 - fbp_prior_512
     streak_prior_64 = fbp_prior_64 - fbp_prior_512
 
-    fbp_prior_512 = fbp_prior_512.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
-    fbp_prior_128 = fbp_prior_128.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
-    fbp_prior_64 = fbp_prior_64.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
+    fbp_prior_512 = fbp_prior_512.unsqueeze(1).transpose(1, 3)
+    fbp_prior_128 = fbp_prior_128.unsqueeze(1).transpose(1, 3) 
+    fbp_prior_64 = fbp_prior_64.unsqueeze(1).transpose(1, 3)  
 
     save_image_2d(fbp_prior_512, os.path.join(image_directory, "fbp_prior_512.png"))
     save_image_2d(fbp_prior_128, os.path.join(image_directory, "fbp_prior_128.png"))
     save_image_2d(fbp_prior_64, os.path.join(image_directory, "fbp_prior_64.png"))
 
 
-    streak_prior_64 = streak_prior_64.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
-    streak_prior_128 = streak_prior_128.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
+    streak_prior_64 = streak_prior_64.unsqueeze(1).transpose(1, 3) 
+    streak_prior_128 = streak_prior_128.unsqueeze(1).transpose(1, 3) 
 
     save_image_2d(streak_prior_64, os.path.join(image_directory, "streak_prior_64.png"))
     save_image_2d(streak_prior_128, os.path.join(image_directory, "streak_prior_128.png"))

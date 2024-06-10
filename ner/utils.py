@@ -47,27 +47,16 @@ def get_train_loader(data,
                         )
     return loader
 
-def get_data_loader(data, 
-                    img_path, 
-                    img_dim,                      
-                    train,                     
-                    batch_size, 
-                    return_data_idx=False):
-    
+def get_data_loader(data, img_path, img_dim, train, batch_size, return_data_idx=False):    
 
     dataset = ImageDataset_2D(img_path, img_dim)
-
-    loader = DataLoader(dataset=dataset, 
-                        batch_size=batch_size, 
-                        shuffle=train
-                        )
+    loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=train)
     return loader
 
 def save_image_2d(tensor, file_name):
     '''
-    tensor: [bs, h, w, 1]
+    tensor: [1, h, w, 1]
     '''
-
-    tensor = tensor[0, ...].permute(2, 0, 1).cpu().data  # [1, h, w]
+    tensor = tensor[0, ...].permute(2, 0, 1).cpu().data  # [1, h, w, 1] -> [1, h, w]
     image_grid = vutils.make_grid(tensor, padding=0, normalize=True, scale_each=True)
     vutils.save_image(image_grid, file_name, nrow=1)
