@@ -23,20 +23,10 @@ def prepare_sub_folder(output_directory):
     return checkpoint_directory, image_directory
 
 
-
-def get_train_loader(data, 
-                    img_path, 
-                    img_dim,                     
-                    train, 
-                    batch_size, 
-                    num_workers, 
-                    sampler, 
-                    pin_memory, 
-                    return_data_idx=False):
-    
+def get_train_loader(img_path, img_dim, train, batch_size, num_workers, sampler, pin_memory):    
 
     dataset = ImageDataset_2D(img_path, img_dim)
-
+    
     loader = DataLoader(dataset=dataset, 
                         batch_size=batch_size, 
                         shuffle=False, 
@@ -47,7 +37,7 @@ def get_train_loader(data,
                         )
     return loader
 
-def get_data_loader(data, img_path, img_dim, train, batch_size, return_data_idx=False):    
+def get_data_loader(img_path, img_dim, train, batch_size):    
 
     dataset = ImageDataset_2D(img_path, img_dim)
     loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=train)

@@ -74,7 +74,7 @@ loss_fn = torch.nn.MSELoss().to("cuda")
 
 # Setup data loader
 print('Load image: {}'.format(config['img_path']))
-data_loader = get_data_loader(config['data'], config['img_path'], config['img_size'], train=True, batch_size=config['batch_size'])
+data_loader = get_data_loader(config['img_path'], config['img_size'], train=True, batch_size=config['batch_size'])
 
 
 ct_projector_full_view_512 = FanBeam2DProjector(config['img_size'], config['proj_size'], config['num_proj_full_view_512'])
