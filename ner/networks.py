@@ -1,5 +1,4 @@
 import numpy as np
-
 import torch
 import torch.nn as nn
 
@@ -10,14 +9,6 @@ class Positional_Encoder():
     def __init__(self, params):
         if params['embedding'] == 'gauss':
             
-            
-            '''
-            MAMEL # added standard deviation to B becaue i think their implementation was sigma = 1 only
-
-                    original: 
-                    #
-                    self.B = torch.empty((params['embedding_size'], params['coordinates_size'])).normal_(mean=0, std=params['standard_deviation'])
-            '''
             self.B = torch.randn((params['embedding_size'], params['coordinates_size'])) * params['scale']
             self.B = self.B.cuda()
         else:
@@ -28,17 +19,7 @@ class Positional_Encoder():
         x_embedding = torch.cat([torch.sin(x_embedding), torch.cos(x_embedding)], dim=-1).to("cuda")
         return x_embedding
 
-
-
-############ Fourier Feature Network ############
-class Swish(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        return x * torch.sigmoid(x)
-
+############ Feed Forward Network ############
 class FFN(nn.Module):
     def __init__(self, params):
         super(FFN, self).__init__()
