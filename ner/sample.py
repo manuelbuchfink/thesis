@@ -18,6 +18,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import tensorboardX
 from ct_2d_projector import FanBeam2DProjector
+from ct_2d_iterative_projector import FanBeam2DProjectorIter
 import numpy as np
 
 from networks import Positional_Encoder, FFN
@@ -74,7 +75,7 @@ loss_fn = torch.nn.MSELoss().to("cuda")
 
 # Setup data loader
 print('Load image: {}'.format(config['img_path']))
-data_loader = get_data_loader(config['data'], config['img_path'], config['img_size'], img_slice=None, train=True, batch_size=config['batch_size'])
+data_loader = get_data_loader(config['img_path'], config['img_size'], train=True, batch_size=config['batch_size'])
 
 
 ct_projector_full_view_512 = FanBeam2DProjector(config['img_size'], config['proj_size'], config['num_proj_full_view_512'])
@@ -96,33 +97,31 @@ wandb.init(
     "batch size" : config['batch_size'],
     }
 )
+
 for it, (grid, image) in enumerate(data_loader):
     # Input coordinates (x,y) grid and target image
-    grid = grid.cuda()  # [bs, x, y, 3], [0, 1]
+    grid = grid.cuda()  # [bs, x, y, 2], [0, 1]
     image = image.cuda()  # [bs, x, y, 1], [0, 1]
     
     projs_128 = ct_projector_sparse_view_128.forward_project(image.transpose(1, 3).squeeze(1))  
     fbp_recon_128 = ct_projector_sparse_view_128.backward_project(projs_128) 
-    print(f"shape of proj128: {projs_128.shape}")
+
+    train_embedding = encoder.embedding(grid)  
+      
     for iterations in range(max_iter):
         train_loss_view = 0   
-        
-        for view in projs_128[0,:,:]:   # view.shape = [512], projs_128[0,:,:].shape = [128,512]      
-        
-            # model.train()
-            # optim.zero_grad()
-            
-            # #train_embedding = encoder.embedding(projs_128[view])
-            # #print(f"shape of embedding: {train_embedding.shape}")
-            # print(f"shape of view: {view.shape}")
-            # train_output = model(view)
-
-            # print(f"shape of output: {train_output.shape}")
-            # #print(f"view_trained: {train_output}, view_value: {projs_128[0][view]}")
-            # #train_projs = ct_projector_sparse_view_128.forward_project(train_output.transpose(1, 3).squeeze(1)).to("cuda")
-            # train_loss_view += 0.5 * loss_fn(train_output.to("cuda"), view.to("cuda"))
-            
-        train_loss= 1/len(projs_128) * train_loss_view
+        model.train()
+        optim.zero_grad()        
+  
+        train_output = model(train_embedding) 
+        views = 4
+        for view in range(0, views, 1):
+   
+            ct_projector_sparse_view_128_iter = FanBeam2DProjectorIter(config['img_size'], config['proj_size'], views, view)
+            view_proj = ct_projector_sparse_view_128_iter.forward_project(train_output.transpose(1, 3).squeeze(1)).to("cuda")
+            train_loss_view += 0.5 * loss_fn(view_proj[0,view:view+1,:].to("cuda"), projs_128[0,view:view+1,:].to("cuda"))
+  
+        train_loss= 1/len(projs_128[0,:,:]/views) * train_loss_view
         print(train_loss)
         train_loss.backward()
         optim.step()
@@ -139,8 +138,7 @@ for it, (grid, image) in enumerate(data_loader):
         if iterations == 0 or (iterations + 1) % config['val_iter'] == 0:
             model.eval()
             with torch.no_grad():
-                test_embedding = encoder.embedding(grid) # fourier feature embedding
-                test_output = model(test_embedding)              # train model on grid                
+                test_output = model(train_embedding)              # train model on grid                
                 test_loss = 0.5 * loss_fn(test_output.to("cuda"), image.to("cuda")) # compare grid with test image
                 test_psnr = - 10 * torch.log10(2 * test_loss).item()
                 test_loss = test_loss.item()
