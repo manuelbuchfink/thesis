@@ -20,13 +20,14 @@ import tensorboardX
 from ct_2d_projector import FanBeam2DProjector
 import numpy as np
 
-from networks import Positional_Encoder, FFN
+from networks import Positional_Encoder, FFN, SIREN
 from utils import get_config, prepare_sub_folder, get_data_loader, save_image_2d
 from skimage.metrics import structural_similarity as compare_ssim
 import gc
 from datetime import datetime
 import warnings
 warnings.filterwarnings("ignore")
+
 
 
 parser = argparse.ArgumentParser()
@@ -64,7 +65,7 @@ shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy c
 encoder = Positional_Encoder(config['encoder'])
 
 # Setup model
-model = FFN(config['net'])
+model = SIREN(config['net'])
 model.cuda()
 model.train()
 
@@ -116,13 +117,29 @@ for it, (grid, image) in enumerate(data_loader):
     save_image_2d(train_proj128, os.path.join(image_directory, "train128.png"))
     save_image_2d(fbp_recon_128, os.path.join(image_directory, "fbprecon_128.png"))
     
-    train_embedding = encoder.embedding(grid)  #  fourier feature embedding:  ([1, x, y, 2] * [2, embedding_size]) -> [1, x, y, embedding_size]
-    
+    train_embedding = encoder.embedding(grid)  #  fourier feature embedding:  ([1, x, y, 2] * [2, embedding_size]) -> [1, x, y, embedding_size]   
     # Train model
     for iterations in range(max_iter):
+        # if iterations == 1000:
+        #     # Save final model            
+        #     model_name = os.path.join(checkpoint_directory, 'model_%06d.pt' % (iterations + 1))
+        #     torch.save({'net': model.state_dict(), \
+        #                 'enc': encoder.B, \
+        #                 'opt': optim.state_dict(), \
+        #                 }, model_name)
+        #     model = FFN(config['net'])
+
+        #     model.cuda()
+        #     model.eval()
+
+        #     # Load pretrain model            
+        #     state_dict = torch.load(model_name)
+        #     print(state_dict)
+        #     model.load_state_dict(state_dict['net'])
         model.train()
         optim.zero_grad()
 
+    
         train_output = model(train_embedding)      #  train model on grid:        ([1, x, y, embedding_size])          -> [1, x, y, 1]
 
         train_projs = ct_projector_sparse_view_128.forward_project(train_output.transpose(1, 3).squeeze(1)).to("cuda")      # evaluate by forward projecting

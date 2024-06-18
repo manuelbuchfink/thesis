@@ -24,4 +24,4 @@ module purge
 module load python/3.11/pytorch/
 
 #srun --export=ALL python ner/ddp_train.py --config ner/configs/ct_recon_2d.yaml
-srun --export=ALL python ner/ddp.py --config ner/configs/ct_recon_2d.yaml
+srun --export=ALL python ner/ddp_train.py --config ner/configs/ct_recon_2d.yaml
