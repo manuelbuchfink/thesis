@@ -179,7 +179,7 @@ for it, (grid, image) in enumerate(data_loader):
                     #currently prior stacked on top
                     train_writer.add_scalar('test_loss', test_loss, iterations + 1)
                     train_writer.add_scalar('test_psnr', test_psnr, iterations + 1)
-                    save_image_2d(test_output, os.path.join(image_directory, "recon_{}_{:.4g}dB_ssim{:.4g}_slice{}.png".format(iterations + 1, test_psnr, test_ssim, it)))
+                    save_image_2d(test_output, os.path.join(image_directory, "recon_{}_{:.4g}dB_ssim{:.4g}_slice{}.png".format(iterations + 1, test_psnr, test_ssim, i)))
                     print("[Validation Iteration: {}/{}] Test loss: {:.4g} | Test psnr: {:.4g} | Test ssim: {:.4g}".format(iterations + 1, max_iter, test_loss, test_psnr, test_ssim))
                     #wandb.log({"ssim": test_ssim, "loss": test_loss, "psnr": test_psnr})
             
@@ -191,25 +191,23 @@ for it, (grid, image) in enumerate(data_loader):
                         }, model_name)
             
 outputs = [None] * config['batch_size']
-
 for i in range (config['batch_size']):
     # Setup input encoder:
     encoder = Positional_Encoder(config['encoder'])
 
     # Setup model
-
     model = FFN(config['net'])
     model.cuda()
     model.train()
     loss_fn = torch.nn.MSELoss()
+    
     # Load pretrain model
     model_path = os.path.join(checkpoint_directory, f"model_{i}.pt")
     state_dict = torch.load(model_path)
     model.load_state_dict(state_dict['net'])
 
-    print('Load pretrain model: {}'.format(model_path))
     outputs[i] = model(embeddings[i])[i,:,:,:].unsqueeze(0)
-    print(f"output_{i}.shape {outputs[i].shape}")
+
 
 prior = torch.cat(outputs, axis=1)   # list of N * [1, (512 / N), 512, 1] -> [1, 512, 512, 1]        
         
@@ -223,10 +221,7 @@ ct_projector_full_view_512 = FanBeam2DProjector(config['img_size'], config['proj
 ct_projector_sparse_view_128 = FanBeam2DProjector(config['img_size'], config['proj_size'], config['num_proj_sparse_view_128'])
 ct_projector_sparse_view_64 = FanBeam2DProjector(config['img_size'], config['proj_size'], config['num_proj_sparse_view_64'])
 
-#prior = test_output 
-print(f"prior.shape {prior.shape}")
 save_image_2d(prior, os.path.join(image_directory, "prior.png"))
-print("prior")
 
 projs_prior_512 = ct_projector_full_view_512.forward_project(prior.transpose(1, 3).squeeze(1))  
 fbp_prior_512 = ct_projector_full_view_512.backward_project(projs_prior_512)  

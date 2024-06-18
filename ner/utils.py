@@ -38,8 +38,6 @@ def save_image_2d(tensor, file_name):
     '''
     tensor: [1, h, w, 1]
     '''
-    print(f"tensor pre shape {tensor.shape}")
     tensor = tensor[0, ...].permute(2, 0, 1).cpu().data  # [1, h, w, 1] -> [1, h, w]
-    print(f"tensor shape {tensor.shape}")
     image_grid = vutils.make_grid(tensor, padding=0, normalize=True, scale_each=True)
     vutils.save_image(image_grid, file_name, nrow=1)
