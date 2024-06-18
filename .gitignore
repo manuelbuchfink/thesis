@@ -6,3 +6,5 @@
 !quick.sh
 !ner/sample.py
 !ddp.py
+!data.py
+!network.py
