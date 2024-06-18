@@ -31,13 +31,14 @@ def get_train_loader(dataset, batch_size, num_workers, sampler, pin_memory):
 def get_data_loader(img_path, img_dim, train, batch_size):    
 
     dataset = ImageDataset_2D_Slices(img_path, img_dim, batch_size)
-    loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=train)
+    loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
     return loader
 
 def save_image_2d(tensor, file_name):
     '''
     tensor: [1, h, w, 1]
     '''
+    print(f"tensor pre shape {tensor.shape}")
     tensor = tensor[0, ...].permute(2, 0, 1).cpu().data  # [1, h, w, 1] -> [1, h, w]
     print(f"tensor shape {tensor.shape}")
     image_grid = vutils.make_grid(tensor, padding=0, normalize=True, scale_each=True)
