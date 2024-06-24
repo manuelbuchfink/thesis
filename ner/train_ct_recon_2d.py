@@ -48,10 +48,10 @@ output_folder = os.path.splitext(os.path.basename(opts.config))[0]
 
 
 output_subfolder = config['data']
-model_name = os.path.join(output_folder, output_subfolder + '/img{}_proj{}_{}_{}_{}_{}_{}_lr{:.2g}_encoder_{}_v{}' \
+model_name = os.path.join(output_folder, output_subfolder + '/img{}_proj{}_{}_{}_{}_{}_{}_lr{:.2g}_encoder_{}_v{}_{}' \
 .format(config['img_size'], config['num_proj_sparse_view_128'], config['model'], \
     config['net']['network_input_size'], config['net']['network_width'], \
-    config['net']['network_depth'], config['loss'], config['lr'], config['encoder']['embedding'], datetime.now()))
+    config['net']['network_depth'], config['loss'], config['lr'], config['encoder']['embedding'], datetime.now(), config['description']))
 if not(config['encoder']['embedding'] == 'none'):
     model_name += '_scale{}_size{}'.format(config['encoder']['scale'], config['encoder']['embedding_size'])
 print(model_name)
@@ -61,11 +61,12 @@ output_directory = os.path.join(opts.output_path + "/outputs", model_name)
 checkpoint_directory, image_directory = prepare_sub_folder(output_directory)
 shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy config file to output folder
 
+
 # Setup input encoder:
 encoder = Positional_Encoder(config['encoder'])
 
 # Setup model
-model = SIREN(config['net'])
+model = FFN(config['net'])
 model.cuda()
 model.train()
 
@@ -75,7 +76,7 @@ loss_fn = torch.nn.MSELoss().to("cuda")
 
 # Setup data loader
 print('Load image: {}'.format(config['img_path']))
-data_loader = get_data_loader(config['img_path'], config['img_size'], train=True, batch_size=config['batch_size'])
+data_loader = get_data_loader(config['img_path'], config['img_size'], batch_size=config['batch_size'])
 
 
 ct_projector_full_view_512 = FanBeam2DProjector(config['img_size'], config['proj_size'], config['num_proj_full_view_512'])
@@ -118,27 +119,12 @@ for it, (grid, image) in enumerate(data_loader):
     save_image_2d(fbp_recon_128, os.path.join(image_directory, "fbprecon_128.png"))
     
     train_embedding = encoder.embedding(grid)  #  fourier feature embedding:  ([1, x, y, 2] * [2, embedding_size]) -> [1, x, y, embedding_size]   
+    
     # Train model
     for iterations in range(max_iter):
-        # if iterations == 1000:
-        #     # Save final model            
-        #     model_name = os.path.join(checkpoint_directory, 'model_%06d.pt' % (iterations + 1))
-        #     torch.save({'net': model.state_dict(), \
-        #                 'enc': encoder.B, \
-        #                 'opt': optim.state_dict(), \
-        #                 }, model_name)
-        #     model = FFN(config['net'])
 
-        #     model.cuda()
-        #     model.eval()
-
-        #     # Load pretrain model            
-        #     state_dict = torch.load(model_name)
-        #     print(state_dict)
-        #     model.load_state_dict(state_dict['net'])
         model.train()
         optim.zero_grad()
-
     
         train_output = model(train_embedding)      #  train model on grid:        ([1, x, y, embedding_size])          -> [1, x, y, 1]
 

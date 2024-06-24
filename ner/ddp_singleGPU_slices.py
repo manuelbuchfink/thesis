@@ -24,7 +24,7 @@ from ct_2d_projector import FanBeam2DProjector
 import numpy as np
 
 from networks import Positional_Encoder, FFN
-from utils import get_config, prepare_sub_folder, get_data_loader, save_image_2d
+from utils import get_config, prepare_sub_folder, get_data_loader_slices, save_image_2d
 from skimage.metrics import structural_similarity as compare_ssim
 import gc
 from datetime import datetime
@@ -78,7 +78,7 @@ loss_fn = torch.nn.MSELoss().to("cuda")
 # Setup data loader
 print('Load image: {}'.format(config['img_path']))
 
-data_loader = get_data_loader(config['img_path'], config['img_size'], train=True, batch_size=config['batch_size'])
+data_loader = get_data_loader_slices(config['img_path'], config['img_size'], batch_size=config['batch_size'])
 
 
 ct_projector_full_view_512 = FanBeam2DProjectorIterative(config['img_size'], config['proj_size'], config['num_proj_full_view_512'], config['batch_size'])

@@ -116,109 +116,7 @@ def init_projections(device, train_loader):
 def train(model, device, train_loader, optim, iterations):
     model.train()
     for it, (grid, image) in enumerate(train_loader):       
-        #print(f"it: {it}, device: {device}") 
-        
-        grids[device].to(device)
-        images[device].to(device)
-        
-        # Train model        
-        optim.zero_grad()        
-        train_output = model(embeddings[device])               #  train model on grid
-        loss_fn = torch.nn.MSELoss().to(device)
-        train_projs = ct_projector_sparse_view_128_iter.forward_project(train_output.transpose(1, 3).squeeze(1)).to(device)   # evaluate by forward projecting
-        train_loss = (0.5 * loss_fn(train_projs.to(device), projections_128[device].to(device)))                                   # compare forward projected grid with sparse view projection
-    
-        train_loss.backward()
-        optim.step()
-
-        # Compute training psnr
-        if (iterations + 1) % config['log_iter'] == 0:
-            train_psnr = -10 * torch.log10(2 * train_loss).item()
-            train_loss = train_loss.item()
-            train_writer.add_scalar('train_loss', train_loss, iterations + 1)
-            train_writer.add_scalar('train_psnr', train_psnr, iterations + 1)
-            print("[Iteration: {}/{}] Train loss: {:.4g} | Train psnr: {:.4g}".format(iterations + 1, max_iter, train_loss, train_psnr))
-            #wandb.log({"loss": train_loss})
-        # Compute testing psnr
-        if iterations == 0 or (iterations + 1) % config['val_iter'] == 0:
-            model.eval()
-            with torch.no_grad():               
-
-                test_loss = 0.5 * loss_fn(train_output.to(device), images[device].to(device)) # compare grid with test image
-                test_psnr = - 10 * torch.log10(2 * test_loss).item()
-                test_loss = test_loss.item()
-                #print(f"output shape: {train_output.shape}, image shape: {images[device].shape}")
-                #print(f"output shape altered: {train_output.transpose(1,3).squeeze(1).shape}, image shape altered: {images[device].transpose(1,3).squeeze(1).shape}")
-                #print(f"output shape altered again: {train_output.transpose(1,3).squeeze(1).permute(1, 2, 0).shape}, image shape altered again: {images[device].transpose(1,3).squeeze(1).permute(1, 2, 0).shape}")
-                #print(f"output shapedrop altered again: {train_output.transpose(1,3).squeeze(1).permute(1, 2, 0)[:,:,device].shape}, image shapedrop altered again: {images[device].transpose(1,3).squeeze(1).permute(1, 2, 0)[:,:,device].shape}")
-                test_ssim = compare_ssim(train_output.transpose(1,3).squeeze(1).permute(1, 2, 0)[:,:,0].cpu().numpy(), images[device].transpose(1,3).squeeze(1).permute(1, 2, 0)[:,:,0].cpu().numpy(), multichannel=True, data_range=1.0)
-
-            train_writer.add_scalar('test_loss', test_loss, iterations + 1)
-            train_writer.add_scalar('test_psnr', test_psnr, iterations + 1)
-            save_image_2d(train_output, os.path.join(image_directory, "recon_{}_{:.4g}dB_ssim{:.4g}.png".format(iterations + 1, test_psnr, test_ssim)))
-            print("[Validation Iteration: {}/{}] Test loss: {:.4g} | Test psnr: {:.4g} | Test ssim: {:.4g}".format(iterations + 1, max_iter, test_loss, test_psnr, test_ssim))
-            #wandb.log({"ssim": test_ssim, "loss": test_loss, "psnr": test_psnr})
-    
-        # # Save final model            
-        # model_name = os.path.join(checkpoint_directory, 'model_%06d.pt' % (it + 1))
-        # torch.save({'net': model.state_dict(), \
-        #             'enc': encoder.B, \
-        #             'opt': optim.state_dict(), \
-        #             }, model_name)
-    
-    # '''
-
-    # Compute Streak artifacts from prior image
-
-    # '''    
-    # # get prior image once training is finished    
-    # prior = test_output
-    # prior_train = train_output 
-    # save_image_2d(prior, os.path.join(image_directory, "prior.png"))
-    # save_image_2d(prior_train, os.path.join(image_directory, "prior_train.png"))
-    # prior_diff = prior - prior_train
-    # save_image_2d(prior_diff, os.path.join(image_directory, "prior_diff.png"))
-    
-    # projs_prior_512 = ct_projector_full_view_512.forward_project(prior.transpose(1, 3).squeeze(1))  # [bs, n, w, z] -> [bs, n, h, w]
-    # fbp_prior_512 = ct_projector_full_view_512.backward_project(projs_prior_512)  # [bs, n, h, w] -> [bs, x, y, z]
-
-    # projs_prior_128 = ct_projector_sparse_view_128.forward_project(prior.transpose(1, 3).squeeze(1))  # [bs, n, w, z] -> [bs, n, h, w]
-    # fbp_prior_128 = ct_projector_sparse_view_128.backward_project(projs_prior_128)  # [bs, n, h, w] -> [bs, x, y, z]
-
-    # projs_prior_64 = ct_projector_sparse_view_64.forward_project(prior.transpose(1, 3).squeeze(1))  # [bs, n, w, z] -> [bs, n, h, w]
-    # fbp_prior_64 = ct_projector_sparse_view_64.backward_project(projs_prior_64)  # [bs, n, h, w] -> [bs, x, y, z]
-    
-    # streak_prior_128 = fbp_prior_128 - fbp_prior_512
-    # streak_prior_64 = fbp_prior_64 - fbp_prior_512
-
-    # fbp_prior_512 = fbp_prior_512.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
-    # fbp_prior_128 = fbp_prior_128.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
-    # fbp_prior_64 = fbp_prior_64.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
-
-    # save_image_2d(fbp_prior_512, os.path.join(image_directory, "fbp_prior_512.png"))
-    # save_image_2d(fbp_prior_128, os.path.join(image_directory, "fbp_prior_128.png"))
-    # save_image_2d(fbp_prior_64, os.path.join(image_directory, "fbp_prior_64.png"))
-
-
-    # streak_prior_64 = streak_prior_64.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
-    # streak_prior_128 = streak_prior_128.unsqueeze(1).transpose(1, 3)  # [bs, z, x, y, 1]
-
-    # save_image_2d(streak_prior_64, os.path.join(image_directory, "streak_prior_64.png"))
-    # save_image_2d(streak_prior_128, os.path.join(image_directory, "streak_prior_128.png"))
-
-    
-    # '''
-
-    # Compute Corrected image
-
-    # '''
-    # diff_image = test_data[1] - prior;
-    # save_image_2d(diff_image, os.path.join(image_directory, "test_minus_prior.png"))
-    # corrected_image_128 = fbp_recon_128 - streak_prior_128
-    # corrected_image_64 = fbp_recon_64 - streak_prior_64
-
-    # save_image_2d(corrected_image_64, os.path.join(image_directory, "corrected_image_64.png"))
-    # save_image_2d(corrected_image_128, os.path.join(image_directory, "corrected_image_128.png"))
+        print("hello")
         
 def test(model, device, test_loader):
     model.eval()
@@ -282,8 +180,11 @@ def main():
                                   batch_size=config['batch_size'],
                                   num_workers=int(os.environ["SLURM_CPUS_PER_TASK"]),                                                                    
                                   )
+    optims = []
     for it, (grid, image) in enumerate(data_loader): 
         print(f"it: {it}, grid: {grid.shape}, image: {display_tensor_stats(image)}")
+        optims.append(optim.Adam(ddp_model.parameters(), lr=config['lr'], betas=(config['beta1'], config['beta2']), weight_decay=config['weight_decay']))
+        
     model = FFN(config['net'])
     model = model.to(local_rank)
     ddp_model = DDP(model, device_ids=[local_rank])
@@ -292,7 +193,7 @@ def main():
     scheduler = StepLR(optimizer, step_size=1, gamma=0.7)
     init_projections(train_loader=data_loader, device=local_rank)
 
-    
+    print(f"optim length: {len(optims)}")
     for iterations in range(max_iter):
         train(ddp_model, local_rank, data_loader, optimizer, iterations)      
         scheduler.step()

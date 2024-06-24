@@ -4,7 +4,7 @@ import yaml
 from torch.utils.data import DataLoader
 import torchvision.utils as vutils
 
-from data import ImageDataset_2D_Slices
+from data import ImageDataset_2D_Slices, ImageDataset_2D
 
 
 def get_config(config):
@@ -28,9 +28,15 @@ def get_train_loader(dataset, batch_size, num_workers, sampler, pin_memory):
     loader = DataLoader(dataset=dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler, pin_memory=pin_memory)
     return loader
 
-def get_data_loader(img_path, img_dim, train, batch_size):    
+def get_data_loader_slices(img_path, img_dim, batch_size):    
 
     dataset = ImageDataset_2D_Slices(img_path, img_dim, batch_size)
+    loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
+    return loader
+
+def get_data_loader(img_path, img_dim, batch_size):    
+
+    dataset = ImageDataset_2D(img_path, img_dim)
     loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
     return loader
 

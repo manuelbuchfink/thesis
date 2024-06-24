@@ -14,4 +14,5 @@ conda activate odl
 module purge
 module load python/3.11/pytorch/
 
-srun --export=ALL python ner/ddp.py --config ner/configs/ct_recon_2d.yaml
+srun --export=ALL python ner/ddp_singleGPU_slices.py --config ner/configs/ct_recon_2d.yaml
+#srun --export=ALL python ner/ddp_singleGPU_limited_angle.py --config ner/configs/ct_recon_2d.yaml

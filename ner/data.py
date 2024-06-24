@@ -62,7 +62,7 @@ class ImageDataset_2D_Slices(Dataset):
         self.slices = [None] * batch_size
         self.grids = [None] * batch_size
         self.segments = [None] * batch_size
-        for i in range(batch_size - 1, -1, -1):
+        for i in range(batch_size):
             chunk = img_dim/batch_size
             #split image into N evenly sized chunks
             self.slices[i] = torch.tensor(image[int(i*chunk):int((i+1)*chunk), :], dtype=torch.float32)[:, :, None] # [h/bs, w, 1]

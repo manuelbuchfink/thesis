@@ -2,8 +2,8 @@
 
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=20
-#SBATCH --mem=5G
-#SBATCH --gpus=rtx4090:2
+#SBATCH --mem=7G
+#SBATCH --gpus=rtx4090:1
 
 source ~/.bashrc
 export PATH=/miniconda3/bin:$PATH
