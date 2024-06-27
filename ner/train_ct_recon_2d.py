@@ -27,6 +27,9 @@ import gc
 from datetime import datetime
 import warnings
 warnings.filterwarnings("ignore")
+import time
+
+start = time.time()
 
 
 
@@ -141,23 +144,88 @@ for it, (grid, image) in enumerate(data_loader):
             train_writer.add_scalar('train_loss', train_loss, iterations + 1)
             train_writer.add_scalar('train_psnr', train_psnr, iterations + 1)
             print("[Iteration: {}/{}] Train loss: {:.4g} | Train psnr: {:.4g}".format(iterations + 1, max_iter, train_loss, train_psnr))
-            wandb.log({"loss": train_loss})
+    
         # Compute testing psnr
-        if iterations == 0 or (iterations + 1) % config['val_iter'] == 0:
+        #if iterations == 0 or (iterations + 1) % config['val_iter'] == 0:
+        
+        '''
+
+        Compute Streak artifacts from prior image
+
+        '''    
+
+        
+        if (iterations + 1) % config['val_iter'] == 0:
+
+                    # get prior image once training is finished    
             model.eval()
             with torch.no_grad():
-                test_output = model(train_embedding)      # train model on grid
+                test_output = train_output      # train model on grid
                 test_loss = 0.5 * loss_fn(test_output.to("cuda"), image.to("cuda")) # compare grid with test image
                 test_psnr = - 10 * torch.log10(2 * test_loss).item()
                 test_loss = test_loss.item()
                 test_ssim = compare_ssim(test_output.transpose(1,3).squeeze().cpu().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
 
+            end = time.time()
+            
             train_writer.add_scalar('test_loss', test_loss, iterations + 1)
             train_writer.add_scalar('test_psnr', test_psnr, iterations + 1)
             save_image_2d(test_output, os.path.join(image_directory, "recon_{}_{:.4g}dB_ssim{:.4g}.png".format(iterations + 1, test_psnr, test_ssim)))
-            print("[Validation Iteration: {}/{}] Test loss: {:.4g} | Test psnr: {:.4g} | Test ssim: {:.4g}".format(iterations + 1, max_iter, test_loss, test_psnr, test_ssim))
+            print("[Validation Iteration: {}/{}] Test loss: {:.4g} | Test psnr: {:.4g} | Test ssim: {:.4g} | Time Elapsed {}".format(iterations + 1, max_iter, test_loss, test_psnr, test_ssim, (end - start)))
             wandb.log({"ssim": test_ssim, "loss": test_loss, "psnr": test_psnr})
+            
+            prior = test_output
+            prior_train = train_output 
+            save_image_2d(prior, os.path.join(image_directory, f"prior_{iterations + 1}.png"))
+            save_image_2d(prior_train, os.path.join(image_directory, f"prior_train_{iterations + 1}.png"))
+            prior_diff = prior - prior_train
+            save_image_2d(prior_diff, os.path.join(image_directory, f"prior_diff_{iterations + 1}.png"))
+            
+            projs_prior_512 = ct_projector_full_view_512.forward_project(prior.transpose(1, 3).squeeze(1))  
+            fbp_prior_512 = ct_projector_full_view_512.backward_project(projs_prior_512)  
 
+            projs_prior_128 = ct_projector_sparse_view_128.forward_project(prior.transpose(1, 3).squeeze(1))  
+            fbp_prior_128 = ct_projector_sparse_view_128.backward_project(projs_prior_128) 
+
+            projs_prior_64 = ct_projector_sparse_view_64.forward_project(prior.transpose(1, 3).squeeze(1))
+            fbp_prior_64 = ct_projector_sparse_view_64.backward_project(projs_prior_64)  
+            
+            streak_prior_128 = fbp_prior_128 - fbp_prior_512
+            streak_prior_64 = fbp_prior_64 - fbp_prior_512
+
+            fbp_prior_512 = fbp_prior_512.unsqueeze(1).transpose(1, 3)
+            fbp_prior_128 = fbp_prior_128.unsqueeze(1).transpose(1, 3) 
+            fbp_prior_64 = fbp_prior_64.unsqueeze(1).transpose(1, 3)  
+
+            save_image_2d(fbp_prior_512, os.path.join(image_directory, f"fbp_prior_512_{iterations + 1}.png"))
+            save_image_2d(fbp_prior_128, os.path.join(image_directory, f"fbp_prior_128_{iterations + 1}.png"))
+            save_image_2d(fbp_prior_64, os.path.join(image_directory, f"fbp_prior_64_{iterations + 1}.png"))
+
+
+            streak_prior_64 = streak_prior_64.unsqueeze(1).transpose(1, 3) 
+            streak_prior_128 = streak_prior_128.unsqueeze(1).transpose(1, 3) 
+
+            save_image_2d(streak_prior_64, os.path.join(image_directory, f"streak_prior_64_{iterations + 1}.png"))
+            save_image_2d(streak_prior_128, os.path.join(image_directory, f"streak_prior_128_{iterations + 1}.png"))
+
+        
+            '''
+
+            Compute Corrected image
+
+            '''
+            diff_image = image - prior;
+            save_image_2d(diff_image, os.path.join(image_directory, f"test_minus_prior_{iterations + 1}.png"))
+            corrected_image_128 = fbp_recon_128 - streak_prior_128
+            corrected_image_64 = fbp_recon_64 - streak_prior_64
+
+            save_image_2d(corrected_image_64, os.path.join(image_directory, f"corrected_image_64_{iterations + 1}.png"))
+            save_image_2d(corrected_image_128, os.path.join(image_directory, f"corrected_image_128_{iterations + 1}.png"))
+        
+            diff_corrected = image - corrected_image_128
+            save_image_2d(diff_corrected, os.path.join(image_directory, f"diff_corrected_image_128_{iterations + 1}.png"))
+            diff_ssim = compare_ssim(corrected_image_128.cpu().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+            print(f"Diff SSIM = {diff_ssim}")
     
     # Save final model            
     model_name = os.path.join(checkpoint_directory, 'model_%06d.pt' % (iterations + 1))
@@ -166,57 +234,4 @@ for it, (grid, image) in enumerate(data_loader):
                 'opt': optim.state_dict(), \
                 }, model_name)
         
-    '''
-
-    Compute Streak artifacts from prior image
-
-    '''    
-    # get prior image once training is finished    
-    prior = test_output
-    prior_train = train_output 
-    save_image_2d(prior, os.path.join(image_directory, "prior.png"))
-    save_image_2d(prior_train, os.path.join(image_directory, "prior_train.png"))
-    prior_diff = prior - prior_train
-    save_image_2d(prior_diff, os.path.join(image_directory, "prior_diff.png"))
-    
-    projs_prior_512 = ct_projector_full_view_512.forward_project(prior.transpose(1, 3).squeeze(1))  
-    fbp_prior_512 = ct_projector_full_view_512.backward_project(projs_prior_512)  
-
-    projs_prior_128 = ct_projector_sparse_view_128.forward_project(prior.transpose(1, 3).squeeze(1))  
-    fbp_prior_128 = ct_projector_sparse_view_128.backward_project(projs_prior_128) 
-
-    projs_prior_64 = ct_projector_sparse_view_64.forward_project(prior.transpose(1, 3).squeeze(1))
-    fbp_prior_64 = ct_projector_sparse_view_64.backward_project(projs_prior_64)  
-    
-    streak_prior_128 = fbp_prior_128 - fbp_prior_512
-    streak_prior_64 = fbp_prior_64 - fbp_prior_512
-
-    fbp_prior_512 = fbp_prior_512.unsqueeze(1).transpose(1, 3)
-    fbp_prior_128 = fbp_prior_128.unsqueeze(1).transpose(1, 3) 
-    fbp_prior_64 = fbp_prior_64.unsqueeze(1).transpose(1, 3)  
-
-    save_image_2d(fbp_prior_512, os.path.join(image_directory, "fbp_prior_512.png"))
-    save_image_2d(fbp_prior_128, os.path.join(image_directory, "fbp_prior_128.png"))
-    save_image_2d(fbp_prior_64, os.path.join(image_directory, "fbp_prior_64.png"))
-
-
-    streak_prior_64 = streak_prior_64.unsqueeze(1).transpose(1, 3) 
-    streak_prior_128 = streak_prior_128.unsqueeze(1).transpose(1, 3) 
-
-    save_image_2d(streak_prior_64, os.path.join(image_directory, "streak_prior_64.png"))
-    save_image_2d(streak_prior_128, os.path.join(image_directory, "streak_prior_128.png"))
-
-    
-    '''
-
-    Compute Corrected image
-
-    '''
-    diff_image = image - prior;
-    save_image_2d(diff_image, os.path.join(image_directory, "test_minus_prior.png"))
-    corrected_image_128 = fbp_recon_128 - streak_prior_128
-    corrected_image_64 = fbp_recon_64 - streak_prior_64
-
-    save_image_2d(corrected_image_64, os.path.join(image_directory, "corrected_image_64.png"))
-    save_image_2d(corrected_image_128, os.path.join(image_directory, "corrected_image_128.png"))
 
