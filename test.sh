@@ -14,4 +14,4 @@ conda activate odl
 module purge
 module load python/3.11/pytorch/
 
-srun --export=ALL python ner/train_ct_recon_2d_fast.py --config ner/configs/ct_recon_2d.yaml
+srun --export=ALL python ner/train_ct_recon_2d_hdf5.py --config ner/configs/ct_recon_2d.yaml
