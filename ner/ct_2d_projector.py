@@ -23,7 +23,7 @@ class Initialization_FanBeam:
         self.image_size = image_size
         self.num_proj = num_proj
         
-        self.reso = 512. / image_size 
+        self.reso = 512. / np.max((image_size, 1)) # avoid div by zero
 
         ## Imaging object (reconstruction objective) with object center as origin
         self.param['nx'] = image_size

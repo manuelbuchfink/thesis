@@ -19,7 +19,8 @@ import torch.backends.cudnn as cudnn
 import tensorboardX
 from ct_2d_projector import FanBeam2DProjector
 import numpy as np
-
+import torch.nn.functional as F
+from data import ImageDataset_2D_hdf5
 from networks import Positional_Encoder, FFN
 from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_image_2d
 from skimage.metrics import structural_similarity as compare_ssim
@@ -28,10 +29,8 @@ from datetime import datetime
 import warnings
 warnings.filterwarnings("ignore")
 import time
-
+import h5py
 start = time.time()
-
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, default='', help='Path to the config file.')
@@ -64,27 +63,11 @@ output_directory = os.path.join(opts.output_path + "/outputs", model_name)
 checkpoint_directory, image_directory = prepare_sub_folder(output_directory)
 shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy config file to output folder
 
-
-# Setup input encoder:
-encoder = Positional_Encoder(config['encoder'])
-
-# Setup model
-model = FFN(config['net'])
-model.cuda()
-model.train()
-
-optim = torch.optim.Adam(model.parameters(), lr=config['lr'], betas=(config['beta1'], config['beta2']), weight_decay=config['weight_decay'])
-loss_fn = torch.nn.MSELoss().to("cuda")
-
-
 # Setup data loader
-print('Load image: {}'.format(config['img_path']))
-data_loader = get_data_loader_hdf5(config['img_path'], config['img_size'], batch_size=config['batch_size'], img_slice=config['img_slice'])
+print('Load volume: {}'.format(config['img_path']))
+dataset = ImageDataset_2D_hdf5(config['img_path'], config['img_size'], config['num_slices'])
+data_loader = get_data_loader_hdf5(dataset, batch_size=config['batch_size'])
 
-
-ct_projector_full_view_512 = FanBeam2DProjector(config['img_size'], config['proj_size'], config['num_proj_full_view_512'])
-ct_projector_sparse_view_128 = FanBeam2DProjector(config['img_size'], config['proj_size'], config['num_proj_sparse_view_128'])
-ct_projector_sparse_view_64 = FanBeam2DProjector(config['img_size'], config['proj_size'], config['num_proj_sparse_view_64'])
 
 wandb.init(
     #set the wandb project where this run will be logged
@@ -102,11 +85,34 @@ wandb.init(
     }
 )
 
-for it, (grid, image) in enumerate(data_loader):
+
+
+corrected_images = []
+for it, (grid, image, image_size) in enumerate(data_loader):
+    
+    print(f"image size {image_size[0]}")
+    image_size = int(image_size[0])
+    
+    ct_projector_full_view_512 = FanBeam2DProjector(image_size, image_size, config['num_proj_full_view_512'])
+    ct_projector_sparse_view_128 = FanBeam2DProjector(image_size, image_size, config['num_proj_sparse_view_128'])
+    ct_projector_sparse_view_64 = FanBeam2DProjector(image_size, image_size, config['num_proj_sparse_view_64'])
+    
+    # Setup input encoder:
+    encoder = Positional_Encoder(config['encoder'], bb_embedding_size=image_size)
+
+    # Setup model
+    model = FFN(config['net'], image_size)
+    model.cuda()
+    model.train()
+    
+    optim = torch.optim.Adam(model.parameters(), lr=config['lr'], betas=(config['beta1'], config['beta2']), weight_decay=config['weight_decay'])
+    loss_fn = torch.nn.MSELoss().to("cuda")
+    
     # Input coordinates (x,y) grid and target image
     grid = grid.cuda()      # [1, x, y, 2], [0, 1]
     image = image.cuda()    # [1, x, y, 1], [0, 1]
-
+    print(f"image shape {image.shape} grid shape {grid.shape}")
+    
     projs_128 = ct_projector_sparse_view_128.forward_project(image.transpose(1, 3).squeeze(1))  # ([1, y, x])        -> [1, num_proj, x]
     fbp_recon_128 = ct_projector_sparse_view_128.backward_project(projs_128)                    # ([1, num_proj, x]) -> [1, y, x]
 
@@ -115,11 +121,21 @@ for it, (grid, image) in enumerate(data_loader):
     
     train_proj128 = projs_128[..., np.newaxis]                  # [1, num_proj, x, 1]
     fbp_recon_128 = fbp_recon_128.unsqueeze(1).transpose(1, 3)  # [1, x, y, 1]
-    fbp_recon_64 = fbp_recon_64.unsqueeze(1).transpose(1, 3)     
-
-    save_image_2d(image, os.path.join(image_directory, "test.png"))
-    save_image_2d(train_proj128, os.path.join(image_directory, "train128.png"))
-    save_image_2d(fbp_recon_128, os.path.join(image_directory, "fbprecon_128.png"))
+    fbp_recon_64 = fbp_recon_64.unsqueeze(1).transpose(1, 3) 
+    
+    train_pad = int((config['img_size'] - config['num_proj_sparse_view_128']) / 2)
+    train_proj128 = F.pad(train_proj128, (0,0, 0,0, train_pad,train_pad))      
+    
+    
+    fbp_pad = int((config['img_size'] - (image_size - 1)) / 2)
+   
+    fbp_padded = F.pad(fbp_recon_128, (0,0, fbp_pad,fbp_pad, fbp_pad,fbp_pad))
+    print(f"fbp recon shape {fbp_recon_128.shape}, padding {fbp_pad}, fbp padded {fbp_padded.shape}")
+    
+    image_padded = F.pad(image, (0,0, fbp_pad,fbp_pad, fbp_pad,fbp_pad))
+    input_image = torch.cat((image_padded, fbp_padded, train_proj128), 2)
+    
+    save_image_2d(input_image, os.path.join(image_directory, f"inputs_slice_{it}.png"))
     
     train_embedding = encoder.embedding(grid)  #  fourier feature embedding:  ([1, x, y, 2] * [2, embedding_size]) -> [1, x, y, embedding_size]   
     
@@ -144,17 +160,12 @@ for it, (grid, image) in enumerate(data_loader):
             train_writer.add_scalar('train_loss', train_loss, iterations + 1)
             train_writer.add_scalar('train_psnr', train_psnr, iterations + 1)
             print("[Iteration: {}/{}] Train loss: {:.4g} | Train psnr: {:.4g}".format(iterations + 1, max_iter, train_loss, train_psnr))
-    
-        # Compute testing psnr
-        #if iterations == 0 or (iterations + 1) % config['val_iter'] == 0:
         
         '''
 
         Compute Streak artifacts from prior image
 
-        '''    
-
-        
+        '''          
         if (iterations + 1) % config['val_iter'] == 0:
 
                     # get prior image once training is finished    
@@ -164,22 +175,17 @@ for it, (grid, image) in enumerate(data_loader):
                 test_loss = 0.5 * loss_fn(test_output.to("cuda"), image.to("cuda")) # compare grid with test image
                 test_psnr = - 10 * torch.log10(2 * test_loss).item()
                 test_loss = test_loss.item()
-                test_ssim = compare_ssim(test_output.transpose(1,3).squeeze().cpu().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+                #test_ssim = compare_ssim(test_output.transpose(1,3).squeeze().cpu().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
 
             end = time.time()
             
             train_writer.add_scalar('test_loss', test_loss, iterations + 1)
             train_writer.add_scalar('test_psnr', test_psnr, iterations + 1)
-            save_image_2d(test_output, os.path.join(image_directory, "recon_{}_{:.4g}dB_ssim{:.4g}.png".format(iterations + 1, test_psnr, test_ssim)))
-            print("[Validation Iteration: {}/{}] Test loss: {:.4g} | Test psnr: {:.4g} | Test ssim: {:.4g} | Time Elapsed {}".format(iterations + 1, max_iter, test_loss, test_psnr, test_ssim, (end - start)))
-            wandb.log({"ssim": test_ssim, "loss": test_loss, "psnr": test_psnr})
+            #save_image_2d(test_output, os.path.join(image_directory, "recon_{}_{:.4g}dB_ssim{:.4g}.png".format(iterations + 1, test_psnr, test_ssim)))
+            #print("[Validation Iteration: {}/{}] Test loss: {:.4g} | Test psnr: {:.4g} | Test ssim: {:.4g} | Time Elapsed {}".format(iterations + 1, max_iter, test_loss, test_psnr, test_ssim, (end - start)))
+            #wandb.log({"ssim": test_ssim, "loss": test_loss, "psnr": test_psnr})
             
             prior = test_output
-            prior_train = train_output 
-            save_image_2d(prior, os.path.join(image_directory, f"prior_{iterations + 1}.png"))
-            save_image_2d(prior_train, os.path.join(image_directory, f"prior_train_{iterations + 1}.png"))
-            prior_diff = prior - prior_train
-            save_image_2d(prior_diff, os.path.join(image_directory, f"prior_diff_{iterations + 1}.png"))
             
             projs_prior_512 = ct_projector_full_view_512.forward_project(prior.transpose(1, 3).squeeze(1))  
             fbp_prior_512 = ct_projector_full_view_512.backward_project(projs_prior_512)  
@@ -197,36 +203,34 @@ for it, (grid, image) in enumerate(data_loader):
             fbp_prior_128 = fbp_prior_128.unsqueeze(1).transpose(1, 3) 
             fbp_prior_64 = fbp_prior_64.unsqueeze(1).transpose(1, 3)  
 
-            save_image_2d(fbp_prior_512, os.path.join(image_directory, f"fbp_prior_512_{iterations + 1}.png"))
-            save_image_2d(fbp_prior_128, os.path.join(image_directory, f"fbp_prior_128_{iterations + 1}.png"))
-            save_image_2d(fbp_prior_64, os.path.join(image_directory, f"fbp_prior_64_{iterations + 1}.png"))
-
+            fbp_prior = torch.cat((fbp_prior_512, fbp_prior_128,  fbp_prior_64), 2)
+            #save_image_2d(fbp_prior, os.path.join(image_directory, f"fbp_priors_{iterations + 1}_it_{it}.png"))            
 
             streak_prior_64 = streak_prior_64.unsqueeze(1).transpose(1, 3) 
             streak_prior_128 = streak_prior_128.unsqueeze(1).transpose(1, 3) 
-
-            save_image_2d(streak_prior_64, os.path.join(image_directory, f"streak_prior_64_{iterations + 1}.png"))
-            save_image_2d(streak_prior_128, os.path.join(image_directory, f"streak_prior_128_{iterations + 1}.png"))
-
+            streak_prior = torch.cat((streak_prior_128, streak_prior_64), 2)
+            #save_image_2d(streak_prior, os.path.join(image_directory, f"streak_priors_{iterations + 1}_it_{it}.png"))
         
             '''
 
             Compute Corrected image
 
             '''
-            diff_image = image - prior;
-            save_image_2d(diff_image, os.path.join(image_directory, f"test_minus_prior_{iterations + 1}.png"))
-            corrected_image_128 = fbp_recon_128 - streak_prior_128
-            corrected_image_64 = fbp_recon_64 - streak_prior_64
-
-            save_image_2d(corrected_image_64, os.path.join(image_directory, f"corrected_image_64_{iterations + 1}.png"))
-            save_image_2d(corrected_image_128, os.path.join(image_directory, f"corrected_image_128_{iterations + 1}.png"))
-        
-            diff_corrected = image - corrected_image_128
-            save_image_2d(diff_corrected, os.path.join(image_directory, f"diff_corrected_image_128_{iterations + 1}.png"))
-            diff_ssim = compare_ssim(corrected_image_128.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
-            print(f"Diff SSIM = {diff_ssim}")
+            diff_image = image - prior
+            corrected_image_128 = fbp_recon_128 - streak_prior_128 
+            diff_corrected = image - corrected_image_128           
+            #diff_ssim = compare_ssim(corrected_image_128.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+            #print(f"Diff SSIM = {diff_ssim}")
+            
+            corrected_images.append(corrected_image_128.cpu().detach().numpy())
+            output_image =  torch.cat((prior, fbp_recon_128, corrected_image_128), 2)
+            save_image_2d(output_image, os.path.join(image_directory, f"outputs_{iterations + 1}_slice_{it}.png"))
+            
     
+    # new_image_path = os.path.join(image_directory, '_corrected.h5')   
+    # with h5py.File(new_image_path,'w') as h5f:
+    #     h5f.create_dataset("VolumeCorrected", data=np.asarray(corrected_images))
+        
     # Save final model            
     model_name = os.path.join(checkpoint_directory, 'model_%06d.pt' % (iterations + 1))
     torch.save({'net': model.state_dict(), \

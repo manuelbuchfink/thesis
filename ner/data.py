@@ -43,30 +43,98 @@ class ImageDataset_2D(Dataset):
     def __len__(self):
         return 1 # iterations
     
+# class ImageDataset_2D_hdf5(Dataset):
+
+#     def __init__(self, img_path, img_dim, num_slices): 
+#         self.img_dim = (img_dim, img_dim) # [h, w]
+        
+#         #read hdf5 image
+#         image = h5py.File(img_path, 'r')   
+#         image = image['Volume'][num_slices,:,:]
+             
+#         # Interpolate image to predefined size in case of smaller img size
+#         image = cv2.resize(image, self.img_dim[::-1], interpolation=cv2.INTER_LINEAR) 
+        
+#         # Scaling normalization -> [0, 1]
+#         image = image / np.max(image)
+
+#         self.img = torch.tensor(image, dtype=torch.float32)[:, :, None] # [h, w, 1]
+#         display_tensor_stats(self.img)
+        
+#     def __getitem__(self, idx): 
+#         grid = create_grid(*self.img_dim)   # [h, w, 2]
+#         return grid, self.img               #return data tuple
+
+#     def __len__(self):
+#         return 1 # iterations
+
+# function to compute minimal bounding box for one slice
+def bbox2(img):   
+    rows = np.any(img, axis=1)        
+    cols = np.any(img, axis=0)
+    
+    if not np.where(rows)[0].any()  or not np.where(cols)[0].any():
+        rmin = rmax = cmin = cmax = 0
+    else:
+        rmin, rmax = np.where(rows)[0][[0, -1]]        
+        cmin, cmax = np.where(cols)[0][[0, -1]]
+
+    return rmin, rmax, cmin, cmax
+
 class ImageDataset_2D_hdf5(Dataset):
 
-    def __init__(self, img_path, img_dim, img_slice): 
+    def __init__(self, img_path, img_dim, num_slices): 
         self.img_dim = (img_dim, img_dim) # [h, w]
-        
+
+
         #read hdf5 image
         image = h5py.File(img_path, 'r')   
-        image = image['Volume'][img_slice,:,:]
-             
-        # Interpolate image to predefined size in case of smaller img size
-        image = cv2.resize(image, self.img_dim[::-1], interpolation=cv2.INTER_LINEAR) 
+        image = image['Volume']
         
-        # Scaling normalization -> [0, 1]
-        image = image / np.max(image)
+        self.slices = [None] * num_slices
+        self.grids = [None] * num_slices
+        self.img_dims = [None] * num_slices
+        
+        for i in range(num_slices):
+            
+            rmin = rmax = cmin = cmax = 0
+            
+            #split image into N evenly sized chunks
+            self.slices[i] = image[i,:,:]
+            
+            # Interpolate image to predefined size in case of smaller img size
+            self.slices[i] = cv2.resize(self.slices[i], self.img_dim[::-1], interpolation=cv2.INTER_LINEAR)     
+                    
+            # Scaling normalization -> [0, 1]
+            self.slices[i] = self.slices[i] / np.max(self.slices[i])
+            self.slices[i] = np.nan_to_num(self.slices[i])
+            
+            # compute minimal bounding box containing information
+            bb= bbox2(self.slices[i])
+            rmin = np.min((bb[0], rmin))
+            rmax = np.max((bb[1], rmax))
+            cmin = np.min((bb[2], cmin))
+            cmax = np.max((bb[3], cmax))
 
-        self.img = torch.tensor(image, dtype=torch.float32)[:, :, None] # [h, w, 1]
-        display_tensor_stats(self.img)
+            min = np.min((rmin, cmin)) - 1 if np.min((rmin, cmin)) % 2 != 0 and np.min((rmin, cmin)) > 0 else np.min((rmin, cmin))
+            max = np.max((rmax, cmax, 2)) + 1 if np.max((rmax, cmax, 2)) % 2 != 0 else np.max((rmax, cmax, 2))
+            print(f"min {min}, max {max}")
+            self.slices[i] = torch.tensor(self.slices[i], dtype=torch.float32)[:, :, None] # [h, w, 1]  
+            self.slices[i] = self.slices[i][min:max, min:max, :]
+            
+            self.img_dims[i] =  max - min   
+            img_dim =(self.img_dims[i], self.img_dims[i])
+            
+            self.grids[i] = (create_grid(*img_dim))
+            #display_tensor_stats(self.slices[i])
+            
         
-    def __getitem__(self, idx): 
-        grid = create_grid(*self.img_dim)   # [h, w, 2]
-        return grid, self.img               #return data tuple
+    def __getitem__(self, idx):      
+        return self.grids[idx], self.slices[idx], self.img_dims[idx]               #return data tuple
 
     def __len__(self):
-        return 1 # iterations
+        return len(self.slices) # iterations
+    
 
 class ImageDataset_2D_Slices(Dataset):
 

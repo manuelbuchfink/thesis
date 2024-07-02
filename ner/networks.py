@@ -6,10 +6,11 @@ import torch.nn as nn
 
 ############ Input Positional Encoding ############
 class Positional_Encoder(): 
-    def __init__(self, params):
+    def __init__(self, params, bb_embedding_size):
         if params['embedding'] == 'gauss':
             
-            self.B = torch.randn((params['embedding_size'], params['coordinates_size'])) * params['scale']
+            #self.B = torch.randn((params['embedding_size'], params['coordinates_size'])) * params['scale']
+            self.B = torch.randn((int(bb_embedding_size / 2), params['coordinates_size'])) * params['scale']
             self.B = self.B.cuda()
         else:
             raise NotImplementedError
@@ -21,12 +22,16 @@ class Positional_Encoder():
 
 ############ Feed Forward Network ############
 class FFN(nn.Module):
-    def __init__(self, params):
+    def __init__(self, params, bb_input_dim):
         super(FFN, self).__init__()
 
+        # num_layers = params['network_depth']
+        # hidden_dim = params['network_width']
+        # input_dim = params['network_input_size']
+        # output_dim = params['network_output_size']
         num_layers = params['network_depth']
         hidden_dim = params['network_width']
-        input_dim = params['network_input_size']
+        input_dim = bb_input_dim
         output_dim = params['network_output_size']
 
         layers = [nn.Linear(input_dim, hidden_dim), nn.ReLU()]
