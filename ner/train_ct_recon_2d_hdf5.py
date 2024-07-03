@@ -69,39 +69,44 @@ dataset = ImageDataset_2D_hdf5(config['img_path'], config['img_size'], config['n
 data_loader = get_data_loader_hdf5(dataset, batch_size=config['batch_size'])
 
 
-wandb.init(
-    #set the wandb project where this run will be logged
-    project="ct-image-reconstruction",
+# wandb.init(
+#     #set the wandb project where this run will be logged
+#     project="ct-image-reconstruction",
 
-    # track hyperparameters and run metadata
-    config={
-    "learning_rate": config['lr'],
-    "architecture": config['model'],
-    "dataset": config['data'],
-    "epochs": config['max_iter'],
-    "fourier feature standard deviation" : config['encoder']['scale'],
-    "img size" : config['img_size'],
-    "batch size" : config['batch_size'],
-    }
-)
+#     # track hyperparameters and run metadata
+#     config={
+#     "learning_rate": config['lr'],
+#     "architecture": config['model'],
+#     "dataset": config['data'],
+#     "epochs": config['max_iter'],
+#     "fourier feature standard deviation" : config['encoder']['scale'],
+#     "img size" : config['img_size'],
+#     "batch size" : config['batch_size'],
+#     }
+# )
 
 
 
 corrected_images = []
 for it, (grid, image, image_size) in enumerate(data_loader):
     
-    print(f"image size {image_size[0]}")
-    image_size = int(image_size[0])
+    image_height = int(image_size[0][0])
+    image_width = int(image_size[1][0])
     
-    ct_projector_full_view_512 = FanBeam2DProjector(image_size, image_size, config['num_proj_full_view_512'])
-    ct_projector_sparse_view_128 = FanBeam2DProjector(image_size, image_size, config['num_proj_sparse_view_128'])
-    ct_projector_sparse_view_64 = FanBeam2DProjector(image_size, image_size, config['num_proj_sparse_view_64'])
+    if image_size[0][0] == 0 or image_size[1][0] == 0: # skip emty images
+        skip_image = torch.zeros(1, 512, 512, 1)
+        corrected_images.append(skip_image)
+        continue
+    
+    ct_projector_full_view_512 = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_full_view_512'])
+    ct_projector_sparse_view_128 = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view_128'])
+    ct_projector_sparse_view_64 = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view_64'])
     
     # Setup input encoder:
-    encoder = Positional_Encoder(config['encoder'], bb_embedding_size=image_size)
+    encoder = Positional_Encoder(config['encoder'], bb_embedding_size= int(image_height + image_width))
 
     # Setup model
-    model = FFN(config['net'], image_size)
+    model = FFN(config['net'], int(image_height + image_width))
     model.cuda()
     model.train()
     
@@ -111,7 +116,6 @@ for it, (grid, image, image_size) in enumerate(data_loader):
     # Input coordinates (x,y) grid and target image
     grid = grid.cuda()      # [1, x, y, 2], [0, 1]
     image = image.cuda()    # [1, x, y, 1], [0, 1]
-    print(f"image shape {image.shape} grid shape {grid.shape}")
     
     projs_128 = ct_projector_sparse_view_128.forward_project(image.transpose(1, 3).squeeze(1))  # ([1, y, x])        -> [1, num_proj, x]
     fbp_recon_128 = ct_projector_sparse_view_128.backward_project(projs_128)                    # ([1, num_proj, x]) -> [1, y, x]
@@ -126,15 +130,13 @@ for it, (grid, image, image_size) in enumerate(data_loader):
     train_pad = int((config['img_size'] - config['num_proj_sparse_view_128']) / 2)
     train_proj128 = F.pad(train_proj128, (0,0, 0,0, train_pad,train_pad))      
     
+    fbp_pad_x = int((config['img_size'] - (image_width - 1)) / 2)
+    fbp_pad_y = int((config['img_size'] - (image_height - 1)) / 2)   
     
-    fbp_pad = int((config['img_size'] - (image_size - 1)) / 2)
-   
-    fbp_padded = F.pad(fbp_recon_128, (0,0, fbp_pad,fbp_pad, fbp_pad,fbp_pad))
-    print(f"fbp recon shape {fbp_recon_128.shape}, padding {fbp_pad}, fbp padded {fbp_padded.shape}")
+    fbp_padded = F.pad(fbp_recon_128, (0,0, fbp_pad_x, fbp_pad_x, fbp_pad_y, fbp_pad_y)) 
+    image_padded = F.pad(image, (0,0, fbp_pad_x, fbp_pad_x, fbp_pad_y, fbp_pad_y))
     
-    image_padded = F.pad(image, (0,0, fbp_pad,fbp_pad, fbp_pad,fbp_pad))
-    input_image = torch.cat((image_padded, fbp_padded, train_proj128), 2)
-    
+    input_image = torch.cat((image_padded, fbp_padded, train_proj128), 2)    
     save_image_2d(input_image, os.path.join(image_directory, f"inputs_slice_{it}.png"))
     
     train_embedding = encoder.embedding(grid)  #  fourier feature embedding:  ([1, x, y, 2] * [2, embedding_size]) -> [1, x, y, embedding_size]   
@@ -223,7 +225,11 @@ for it, (grid, image, image_size) in enumerate(data_loader):
             #print(f"Diff SSIM = {diff_ssim}")
             
             corrected_images.append(corrected_image_128.cpu().detach().numpy())
-            output_image =  torch.cat((prior, fbp_recon_128, corrected_image_128), 2)
+            
+            corrected_image_padded = F.pad(corrected_image_128, (0,0, fbp_pad_x, fbp_pad_x, fbp_pad_y, fbp_pad_y))
+            prior_padded = F.pad(prior, (0,0, fbp_pad_x, fbp_pad_x, fbp_pad_y, fbp_pad_y))
+            output_image =  torch.cat((prior_padded, fbp_padded, corrected_image_padded), 2)
+            
             save_image_2d(output_image, os.path.join(image_directory, f"outputs_{iterations + 1}_slice_{it}.png"))
             
     

@@ -13,27 +13,23 @@ from odl.contrib import torch as odl_torch
 
 
 class Initialization_FanBeam:
-    def __init__(self, image_height, image_width, num_proj, start_angle, proj_size):
+    def __init__(self, image_size, num_proj, start_angle, proj_size):
         '''
         image_size: [x, y], assume x = y for each slice image
         proj_size: [h, w]
         '''
         self.param = {}
-    
-        self.num_proj = num_proj
-        self.image_width = image_width
-        self.image_height = image_height
-  
         
-        self.reso = 512. / np.max((self.image_width, 1)) # avoid div by zero
+        self.image_size = image_size
+        self.num_proj = num_proj
+        print(f"image size project {self.image_size.shape}")
+        self.reso = 512. / np.max((self.image_size, 1)) # avoid div by zero
 
         ## Imaging object (reconstruction objective) with object center as origin
-        self.param['nx'] = self.image_width
-        self.param['ny'] = self.image_height
+        self.param['nx'] = image_size
         self.param['nh'] = proj_size
- 
+
         self.param['sx'] = self.param['nx'] * self.reso
-        self.param['sy'] = self.param['ny'] * self.reso
 
         ## Projection view angles (ray directions)
         self.param['start_angle'] = start_angle            # 0
@@ -41,8 +37,7 @@ class Initialization_FanBeam:
         self.param['nProj'] = num_proj
 
         ## Detector
-        self.param['sh'] = self.param['sx'] * (1.286) # Size of a detector pixel.  
-
+        self.param['sh'] = self.param['sx'] * (1.286) # Size of a detector pixel.   
         '''
         dde = source_to_detector - source_to_isocenter = 1085,6 - 595 = 490,6
         '''
@@ -51,16 +46,16 @@ class Initialization_FanBeam:
 
 def build_fanbeam_geometry(param):
     # Reconstruction space:
-    reco_space = odl.uniform_discr(min_pt=[-param.param['sx'] / 2.0, -param.param['sy'] / 2.0],
-                                    max_pt=[param.param['sx'] / 2.0, param.param['sy'] / 2.0], 
-                                    shape=[param.param['nx'], param.param['ny']],
+    reco_space = odl.uniform_discr(min_pt=[-param.param['sx'] / 2.0, -param.param['sx'] / 2.0],
+                                    max_pt=[param.param['sx'] / 2.0, param.param['sx'] / 2.0], 
+                                    shape=[param.param['nx'], param.param['nx']],
                                     dtype='float32')
     
     angle_partition = odl.uniform_partition(min_pt=param.param['start_angle'], 
                                             max_pt=param.param['end_angle'],
                                             shape=param.param['nProj'])
   
-    detector_partition = odl.uniform_partition(min_pt=-(param.param['sh']),
+    detector_partition = odl.uniform_partition(min_pt=-(param.param['sh']), 
                                                max_pt=(param.param['sh']),
                                                shape=param.param['nh']) # projection size
 
@@ -128,17 +123,15 @@ class FBP_FanBeam(nn.Module):
 
 
 class FanBeam2DProjector():
-    def __init__(self, image_height, image_width, proj_size, num_proj):
+    def __init__(self, image_size, proj_size, num_proj):
 
-        self.image_height = image_height
-        self.image_width = image_width
+        self.image_size = image_size
         self.proj_size = proj_size
         self.num_proj = num_proj
         self.start_angle = 0
 
         # Initialize required parameters for image, view, detector
-        geo_param = Initialization_FanBeam(image_height=self.image_height, 
-                                           image_width=self.image_width, 
+        geo_param = Initialization_FanBeam(image_size=self.image_size, 
                                             proj_size=self.proj_size,
                                             num_proj=self.num_proj, 
                                             start_angle=self.start_angle
