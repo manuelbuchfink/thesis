@@ -43,30 +43,6 @@ class ImageDataset_2D(Dataset):
     def __len__(self):
         return 1 # iterations
     
-# class ImageDataset_2D_hdf5(Dataset):
-
-#     def __init__(self, img_path, img_dim, num_slices): 
-#         self.img_dim = (img_dim, img_dim) # [h, w]
-        
-#         #read hdf5 image
-#         image = h5py.File(img_path, 'r')   
-#         image = image['Volume'][num_slices,:,:]
-             
-#         # Interpolate image to predefined size in case of smaller img size
-#         image = cv2.resize(image, self.img_dim[::-1], interpolation=cv2.INTER_LINEAR) 
-        
-#         # Scaling normalization -> [0, 1]
-#         image = image / np.max(image)
-
-#         self.img = torch.tensor(image, dtype=torch.float32)[:, :, None] # [h, w, 1]
-#         display_tensor_stats(self.img)
-        
-#     def __getitem__(self, idx): 
-#         grid = create_grid(*self.img_dim)   # [h, w, 2]
-#         return grid, self.img               #return data tuple
-
-#     def __len__(self):
-#         return 1 # iterations
 
 # function to compute minimal bounding box for one slice
 def bounding_box_2D(img):   
@@ -106,18 +82,27 @@ class ImageDataset_2D_hdf5(Dataset):
             self.slices[i] = self.slices[i] / np.max(self.slices[i])
             self.slices[i] = np.nan_to_num(self.slices[i])
             
-            # compute minimal bounding box containing information
-            bounding_box = bounding_box_2D(self.slices[i])
+            '''
+            
+            compute the minimal bounding box encompassing the central object
+            
+            '''
+            # self.slices[i][self.slices[i] < 0.01] = 0 # set small values to zero in order to better estimate a well fitting bounding box
+            bounding_box = bounding_box_2D(self.slices[i]) # compute bounding box
+            
+            # make sure that bounding box borders are even numbered
             rmin = bounding_box[0] - 1 if bounding_box[0] % 2 != 0 and bounding_box[0] > 0 else bounding_box[0]
             rmax = bounding_box[1] + 1 if bounding_box[1] % 2 != 0 else bounding_box[1]
             cmin = bounding_box[2] - 1 if bounding_box[2] % 2 != 0 and bounding_box[2] > 0 else bounding_box[2]
             cmax = bounding_box[3] + 1 if bounding_box[3] % 2 != 0 else bounding_box[3] 
            
+            # min = np.min((rmin, cmin))
+            # max = np.max((rmax, cmax))
             self.slices[i] = torch.tensor(self.slices[i], dtype=torch.float32)[:, :, None] # [h, w, 1]  
             self.slices[i] = self.slices[i][rmin:rmax, cmin:cmax, :]
             
-            self.img_dims[i] =  (int((rmax - rmin)), int((cmax - cmin)))   
-            img_dim = self.img_dims[i]
+            self.img_dims[i] =  (rmax, rmin, cmax, cmin)   
+            img_dim = (self.img_dims[i][0] - self.img_dims[i][1], self.img_dims[i][2] - self.img_dims[i][3])
             
             self.grids[i] = (create_grid(*img_dim))
             #display_tensor_stats(self.slices[i])
