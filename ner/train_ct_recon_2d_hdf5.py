@@ -140,20 +140,26 @@ for it, (grid, image, image_size) in enumerate(data_loader):
         
         skip = False
         
-    #     # Load pretrain model
-    #     model_path = os.path.join(checkpoint_directory, f"temp_model.pt")
-    #     state_dict = torch.load(model_path)
-    #     print(state_dict.keys())
-    #     print(state_dict['net']['model.0.weight'])
-    #     print(f" image height {image_height} image width {image_width}")
-    #     for weight in state_dict['net']:
+        '''
+        Load pretrain model weights and resize them to fit the new image shape
+        '''
+        # Load pretrain model
+        model_path = os.path.join(checkpoint_directory, f"temp_model.pt")
+        state_dict = torch.load(model_path)
+
+        for weight in state_dict['net']:
+            if 'weight' in weight: 
+                if '.0.' in weight:                    
+                    reshaped_weight = reshape_tensor(state_dict['net'][weight].unsqueeze(0).unsqueeze(3), torch.zeros(1, config['net']['network_width'], (image_height + image_width), 1))
+                elif '.14.' in weight:
+                    reshaped_weight = reshape_tensor(state_dict['net'][weight].unsqueeze(0).unsqueeze(3), torch.zeros(1, 1, config['net']['network_width'], 1))
+                else:
+                    reshaped_weight = reshape_tensor(state_dict['net'][weight].unsqueeze(0).unsqueeze(3), torch.zeros(1, config['net']['network_width'], config['net']['network_width'], 1))
             
-    #         print(state_dict['net'][weight].shape)
-    #         state_dict['net'][weight] = state_dict['net'][weight].expand(128, (image_height + image_width))
-    #         torch.tensor = state_dict['net'][weight] 
-    #     print(state_dict['net']['model.0.weight'].shape)
-    #     print(state_dict['enc'].shape)
-    #     model.load_state_dict(state_dict['net'])
+                with torch.no_grad():
+                    state_dict['net'][weight] = reshaped_weight.squeeze(3).squeeze(0) # reshape pretrain weights to fit new image size
+
+        model.load_state_dict(state_dict['net'])
         
     
     model.cuda()
@@ -213,6 +219,10 @@ for it, (grid, image, image_size) in enumerate(data_loader):
                 test_ssim = compare_ssim(test_output.transpose(1,3).squeeze().cpu().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
 
             end = time.time()
+            
+            if test_ssim > config['end_train_early_threshold']:
+                previous_image = shenanigans(skip, test_output, projectors, image, fbp_recon_128, train_proj128, pads, it, iterations, image_directory, corrected_images)
+                break
             
             train_writer.add_scalar('test_loss', test_loss, iterations + 1)
             train_writer.add_scalar('test_psnr', test_psnr, iterations + 1)

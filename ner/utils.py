@@ -126,6 +126,6 @@ def shenanigans(skip, test_output, projectors, image, fbp_recon_128, train_proj1
     save_image_2d(input_image, os.path.join(image_directory, f"inputs_slice_{it +1}.png"))
     
     output_image =  torch.cat(((train_proj128 / torch.max(train_proj128)), fbp_padded, prior_padded,  corrected_image_padded), 2)            
-    save_image_2d(output_image, os.path.join(image_directory, f"outputs_{iterations + 1}_slice_{it + 1}.png"))
+    save_image_2d(output_image, os.path.join(image_directory, f"outputs_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
 
     return image

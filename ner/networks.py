@@ -25,10 +25,6 @@ class FFN(nn.Module):
     def __init__(self, params, bb_input_dim):
         super(FFN, self).__init__()
 
-        # num_layers = params['network_depth']
-        # hidden_dim = params['network_width']
-        # input_dim = params['network_input_size']
-        # output_dim = params['network_output_size']
         num_layers = params['network_depth']
         hidden_dim = params['network_width']
         input_dim = bb_input_dim
@@ -92,11 +88,14 @@ class SIREN(nn.Module):
     
 ###########Projection Layer###################
 class Projection(nn.Module):
-    def __init__(self, input_dim, output_dim):
-        
-        layer = nn.Linear(input_dim, output_dim), nn.Sigmoid()
-        self.model = nn.Sequential(layer)
-        
+    def __init__(self, params, input_dim, resize_dim):        
+        super(Projection, self).__init__()
+
+        input_dim = input_dim  
+        layers = [nn.Linear(input_dim, resize_dim), nn.ReLU()]        
+
+        self.model = nn.Sequential(*layers)
+
     def forward(self, x):
         out = self.model(x)
         return out
