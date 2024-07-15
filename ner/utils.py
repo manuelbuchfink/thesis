@@ -1,13 +1,17 @@
 import os
 import yaml
+import numpy as np
 
-from torch.utils.data import DataLoader
+
 import torchvision.utils as vutils
 import torch
 import torch.nn.functional as F
+import torchvision.transforms as T
+from torch.utils.data import DataLoader
 from data import ImageDataset_2D_Slices, ImageDataset_2D
 from skimage.metrics import structural_similarity as compare_ssim
-import torchvision.transforms as T
+
+
 def get_config(config):
     with open(config, 'r') as stream:
         return yaml.load(stream, Loader=yaml.Loader)
@@ -63,7 +67,39 @@ def reshape_tensor(previous_image, image):
     previous_image = transform(previous_image.permute(0, 3, 1, 2))  # ([1, x, y, 1]) -> [1, 1, x, y]  
     return previous_image.permute(0, 2, 3, 1)                       # ([1, 1, h, w]) -> [1, h, w, 1]
 
-def shenanigans(skip, test_output, projectors, image, fbp_recon_128, train_proj128, pads, it, iterations, image_directory, corrected_images): # image saving mumbo jumbo
+def get_image_pads(image_size, config):
+    
+    fbp_pad_xl = int((image_size[1][0] - 1))
+    fbp_pad_xr = int((config['img_size'] - (image_size[0][0] - 1)))
+    fbp_pad_yl = int((image_size[3][0] - 1))     
+    fbp_pad_yr = int((config['img_size'] - (image_size[2][0] - 1)))    
+     
+    pads = [fbp_pad_xl, fbp_pad_xr, fbp_pad_yl, fbp_pad_yr]  
+    return pads
+
+def reshape_model_weights(image_height, image_width, config, checkpoint_directory):
+        '''
+        Load pretrain model weights and resize them to fit the new image shape
+        '''
+        # Load pretrain model
+        model_path = os.path.join(checkpoint_directory, f"temp_model.pt")
+        state_dict = torch.load(model_path)
+
+        for weight in state_dict['net']: # reshape weights to fit new image\model size
+            if 'weight' in weight: 
+                if '.0.' in weight:                    
+                    reshaped_weight = reshape_tensor(state_dict['net'][weight].unsqueeze(0).unsqueeze(3), torch.zeros(1, config['net']['network_width'], (image_height + image_width), 1))
+                elif '.14.' in weight:
+                    reshaped_weight = reshape_tensor(state_dict['net'][weight].unsqueeze(0).unsqueeze(3), torch.zeros(1, 1, config['net']['network_width'], 1))
+                else:
+                    reshaped_weight = reshape_tensor(state_dict['net'][weight].unsqueeze(0).unsqueeze(3), torch.zeros(1, config['net']['network_width'], config['net']['network_width'], 1))
+            
+                with torch.no_grad():
+                    state_dict['net'][weight] = reshaped_weight.squeeze(3).squeeze(0) # reshape pretrain weights to fit new image size
+                    
+        return state_dict
+                    
+def shenanigans(skip, test_output, projectors, image, fbp_recon_128, train_projections, pads, it, iterations, image_directory, config): # image saving mumbo jumbo
     
     prior = test_output.cuda()
     image = image.cuda()
@@ -114,18 +150,22 @@ def shenanigans(skip, test_output, projectors, image, fbp_recon_128, train_proj1
     diff_ssim_train = compare_ssim(corrected_image_128.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
     print(f"Diff SSIM train = {diff_ssim_train}")
     
-    corrected_images.append(corrected_image_128.cpu().detach().numpy())
-    
     corrected_image_padded = F.pad(corrected_image_128, (0,0, pads[2],pads[3], pads[0],pads[1]))
     prior_padded = F.pad(prior, (0,0, pads[2],pads[3], pads[0],pads[1]))
 
     fbp_padded = F.pad(fbp_recon_128, (0,0, pads[2],pads[3], pads[0],pads[1])) 
     image_padded = F.pad(image, (0,0, pads[2],pads[3], pads[0],pads[1]))
-
-    input_image = torch.cat((image_padded, fbp_padded, (train_proj128 / torch.max(train_proj128))), 2)    
+    #print(f"train shape {train_projections.shape}")
+    train_projections = train_projections.squeeze().unsqueeze(0)
+                     # [1, num_proj, x, 1]
+    train_pad = int((config['img_size'] - config['num_proj']) / 2)
+    train_projections_padded = F.pad(train_projections, (0,0, train_pad,train_pad)).unsqueeze(3)    
+    
+    #print(f"im pa {image_padded.shape}, fb pa  ·{fbp_padded.shape} tr pa {train_projections_padded.shape}")
+    input_image = torch.cat((image_padded, fbp_padded, (train_projections_padded / torch.max(train_projections_padded))), 2)    
     save_image_2d(input_image, os.path.join(image_directory, f"inputs_slice_{it +1}.png"))
     
-    output_image =  torch.cat(((train_proj128 / torch.max(train_proj128)), fbp_padded, prior_padded,  corrected_image_padded), 2)            
+    output_image =  torch.cat(((train_projections_padded / torch.max(train_projections_padded)), fbp_padded, prior_padded,  corrected_image_padded), 2)            
     save_image_2d(output_image, os.path.join(image_directory, f"outputs_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
-
-    return image
+    
+    return train_projections, corrected_image_padded.cpu().detach().numpy()

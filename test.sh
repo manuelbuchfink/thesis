@@ -2,7 +2,7 @@
 
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=20
-#SBATCH --mem=7G
+#SBATCH --mem=20G
 #SBATCH --gpus=rtx4090:1
 
 source ~/.bashrc

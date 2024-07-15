@@ -65,7 +65,7 @@ class ImageDataset_2D_hdf5(Dataset):
         #read hdf5 image
         image = h5py.File(img_path, 'r')   
         image = image['Volume']
-        print(f"vol shape {image}")
+        
         self.slices = [None] * num_slices
         self.grids = [None] * num_slices
         self.img_dims = [None] * num_slices
