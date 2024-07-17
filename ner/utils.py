@@ -98,6 +98,7 @@ def reshape_model_weights(image_height, image_width, config, checkpoint_director
                     state_dict['net'][weight] = reshaped_weight.squeeze(3).squeeze(0) # reshape pretrain weights to fit new image size
                     
         return state_dict
+    
 global avg_ssim_train
 global avg_ssim_recon
 avg_ssim_train = 0
@@ -109,16 +110,16 @@ def shenanigans(skip, test_output, projectors, image, fbp_recon, train_projectio
 
     if skip:        
         prior = reshape_tensor(test_output, image).cuda()
-        projections = projectors[3].forward_project(prior.transpose(1, 3).squeeze(1))  # ([1, y, x])        -> [1, num_proj, x]
-        fbp_recon = projectors[3].backward_project(projections)                    # ([1, num_proj, x]) -> [1, y, x]
-        fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 3)                   # ([1, y, x])        -> [1, x, y, 1]
+        projections = projectors[1].forward_project(prior.transpose(1, 3).squeeze(1))   # ([1, y, x])        -> [1, num_proj, x]
+        fbp_recon = projectors[1].backward_project(projections)                         # ([1, num_proj, x]) -> [1, y, x]
+        fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 3)                              # ([1, y, x])        -> [1, x, y, 1]
         
    
     projs_prior_512 = projectors[0].forward_project(prior.transpose(1, 3).squeeze(1))  
     fbp_prior_512 = projectors[0].backward_project(projs_prior_512)  
 
-    projs_prior = projectors[3].forward_project(prior.transpose(1, 3).squeeze(1))  
-    fbp_prior = projectors[3].backward_project(projs_prior) 
+    projs_prior = projectors[1].forward_project(prior.transpose(1, 3).squeeze(1))  
+    fbp_prior = projectors[1].backward_project(projs_prior) 
 
     
     streak_prior = (fbp_prior - fbp_prior_512).unsqueeze(1).transpose(1, 3) 
@@ -150,7 +151,7 @@ def shenanigans(skip, test_output, projectors, image, fbp_recon, train_projectio
     image_padded = F.pad(image, (0,0, pads[2],pads[3], pads[0],pads[1]))
 
     train_projections = train_projections.squeeze().unsqueeze(0)     # [1, num_proj, x, 1]
-    train_pad = int((config['img_size'] - config['num_proj']) / 2)
+    train_pad = int((config['img_size'] - config['num_proj_sparse_view']) / 2)
     train_projections_padded = F.pad(train_projections, (0,0, train_pad,train_pad)).unsqueeze(3)    
     
     

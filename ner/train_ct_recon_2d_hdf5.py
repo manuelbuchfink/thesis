@@ -54,7 +54,7 @@ output_folder = os.path.splitext(os.path.basename(opts.config))[0]
 
 output_subfolder = config['data']
 model_name = os.path.join(output_folder, output_subfolder + '/img{}_proj{}_{}_{}_{}_{}_{}_lr{:.2g}_encoder_{}_v{}_{}' \
-.format(config['img_size'], config['num_proj_sparse_view_128'], config['model'], \
+.format(config['img_size'], config['num_proj_sparse_view'], config['model'], \
     config['net']['network_input_size'], config['net']['network_width'], \
     config['net']['network_depth'], config['loss'], config['lr'], config['encoder']['embedding'], datetime.now(), config['description']))
 if not(config['encoder']['embedding'] == 'none'):
@@ -95,7 +95,7 @@ corrected_images = []
 previous_projection = None
 total_its = 0
 for it, (grid, image, image_size) in enumerate(data_loader):
-    
+
     # Input coordinates (x,y) grid and target image
     grid = grid.cuda()      # [1, x, y, 2], [0, 1]
     image = image.cuda()    # [1, x, y, 1], [0, 1]
@@ -111,16 +111,15 @@ for it, (grid, image, image_size) in enumerate(data_loader):
         print(f"corrected IMAGE shapes {skip_image.squeeze(3).shape}")
         continue
     
-    ct_projector_full_view_512 = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_full_view_512'])
-    ct_projector_sparse_view_128 = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view_128'])
-    ct_projector_sparse_view_64 = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view_64'])
-    ct_projector_sparse_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj'])
-    projectors = [ct_projector_full_view_512, ct_projector_sparse_view_128, ct_projector_sparse_view_64, ct_projector_sparse_view] 
+
+    ct_projector_full_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_full_view'])
+    ct_projector_sparse_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+    projectors = [ct_projector_full_view, ct_projector_sparse_view] 
     
-    projections = ct_projector_sparse_view.forward_project(image.transpose(1, 3).squeeze(1))  # ([1, y, x])        -> [1, num_proj, x]
-    fbp_recon= ct_projector_sparse_view.backward_project(projections)                    # ([1, num_proj, x]) -> [1, y, x]   
+    projections = ct_projector_sparse_view.forward_project(image.transpose(1, 3).squeeze(1))  # ([1, y, x])        -> [1, num_proj_sparse_view, x]
+    fbp_recon= ct_projector_sparse_view.backward_project(projections)                    # ([1, num_proj_sparse_view, x]) -> [1, y, x]   
     
-    train_projections = projections[..., np.newaxis]                  # [1, num_proj, x, 1]
+    train_projections = projections[..., np.newaxis]                  # [1, num_proj_sparse_view, x, 1]
     fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 3)  # [1, x, y, 1]    
     
     # Setup input encoder:
@@ -193,7 +192,6 @@ for it, (grid, image, image_size) in enumerate(data_loader):
                     test_psnr = - 10 * torch.log10(2 * test_loss).item()
                     test_loss = test_loss.item()
                     
-                    #test_ssim = compare_ssim(train_output.transpose(1,3).squeeze().cpu().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
                     test_ssim = compare_ssim(train_output.transpose(1,3).squeeze().cpu().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
 
                 end = time.time()
@@ -213,7 +211,7 @@ for it, (grid, image, image_size) in enumerate(data_loader):
                     #test_ssim = compare_ssim(train_projections.squeeze().cpu().detach().numpy(), projections.squeeze().cpu().numpy(), multichannel=True, data_range=1.0)            
                 end = time.time()
         
-                print("[Validation Iteration: {}/{}] | Test ssim: {:.4g} | Time Elapsed {}".format(iterations + 1, max_iter, test_ssim, (end - start)))
+                print("[Validation Iteration: {}/{}] | Test ssim: {:.4g} | Time Elapsed {}".format(iterations + 1, max_iter, test_ssim, (end - start) / 60))
         
             # get prior image once training is finished              
             if test_ssim > config['accuracy_goal']: # stop early if accuracy is above threshold                
@@ -240,8 +238,8 @@ for it, (grid, image, image_size) in enumerate(data_loader):
 corrected_images = torch.cat(corrected_images, 0)
 print(f"total iterations: {total_its}")
 # save corrected slices in new hdf5 Volume
-corrected_image_path = os.path.join(image_directory, f"{config['data'][:-3]}_corrected_with_{config['num_proj']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5") 
-print(f"saved to {config['data'][:-3]}_corrected_with_{config['num_proj']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")  
+corrected_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5") 
+print(f"saved to {config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")  
 with h5py.File(corrected_image_path,'w') as h5f:
     h5f.create_dataset("Volume", data=np.asarray(corrected_images))
         

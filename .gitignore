@@ -10,3 +10,5 @@
 !network.py
 !ner*
 !ner/*
+!old_scripts*
+!old_scripts/*
