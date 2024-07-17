@@ -98,72 +98,61 @@ def reshape_model_weights(image_height, image_width, config, checkpoint_director
                     state_dict['net'][weight] = reshaped_weight.squeeze(3).squeeze(0) # reshape pretrain weights to fit new image size
                     
         return state_dict
-                    
-def shenanigans(skip, test_output, projectors, image, fbp_recon_128, train_projections, pads, it, iterations, image_directory, config): # image saving mumbo jumbo
+global avg_ssim_train
+global avg_ssim_recon
+avg_ssim_train = 0
+avg_ssim_recon = 0                   
+def shenanigans(skip, test_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config): # image saving mumbo jumbo
     
     prior = test_output.cuda()
     image = image.cuda()
 
     if skip:        
         prior = reshape_tensor(test_output, image).cuda()
-        projs_128 = projectors[1].forward_project(image.transpose(1, 3).squeeze(1))  # ([1, y, x])        -> [1, num_proj, x]
-        fbp_recon_128 = projectors[1].backward_project(projs_128)                    # ([1, num_proj, x]) -> [1, y, x]
-        fbp_recon_128 = fbp_recon_128.unsqueeze(1).transpose(1, 3)                   # ([1, y, x])        -> [1, x, y, 1]
+        projections = projectors[3].forward_project(prior.transpose(1, 3).squeeze(1))  # ([1, y, x])        -> [1, num_proj, x]
+        fbp_recon = projectors[3].backward_project(projections)                    # ([1, num_proj, x]) -> [1, y, x]
+        fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 3)                   # ([1, y, x])        -> [1, x, y, 1]
         
    
     projs_prior_512 = projectors[0].forward_project(prior.transpose(1, 3).squeeze(1))  
     fbp_prior_512 = projectors[0].backward_project(projs_prior_512)  
 
-    projs_prior_128 = projectors[1].forward_project(prior.transpose(1, 3).squeeze(1))  
-    fbp_prior_128 = projectors[1].backward_project(projs_prior_128) 
+    projs_prior = projectors[3].forward_project(prior.transpose(1, 3).squeeze(1))  
+    fbp_prior = projectors[3].backward_project(projs_prior) 
 
-    projs_prior_64 = projectors[2].forward_project(prior.transpose(1, 3).squeeze(1))
-    fbp_prior_64 = projectors[2].backward_project(projs_prior_64)  
     
-    streak_prior_128 = fbp_prior_128 - fbp_prior_512
-    streak_prior_64 = fbp_prior_64 - fbp_prior_512
-
-    fbp_prior_512 = fbp_prior_512.unsqueeze(1).transpose(1, 3)
-    fbp_prior_128 = fbp_prior_128.unsqueeze(1).transpose(1, 3) 
-    fbp_prior_64 = fbp_prior_64.unsqueeze(1).transpose(1, 3)  
-
-    fbp_prior = torch.cat((fbp_prior_512, fbp_prior_128,  fbp_prior_64), 2)
-    #save_image_2d(fbp_prior, os.path.join(image_directory, f"fbp_priors_{iterations + 1}_it_{it + 1}.png"))            
-
-    streak_prior_64 = streak_prior_64.unsqueeze(1).transpose(1, 3) 
-    streak_prior_128 = streak_prior_128.unsqueeze(1).transpose(1, 3) 
-    streak_prior = torch.cat((streak_prior_128, streak_prior_64), 2)
-    #save_image_2d(streak_prior, os.path.join(image_directory, f"streak_priors_{iterations + 1}_it_{it + 1}.png"))
+    streak_prior = (fbp_prior - fbp_prior_512).unsqueeze(1).transpose(1, 3) 
+    fbp_prior = fbp_prior.unsqueeze(1).transpose(1, 3) 
 
     '''
 
     Compute Corrected image
 
     '''
-    diff_image = image - prior
- 
-    corrected_image_128 = fbp_recon_128 - streak_prior_128 
-    diff_corrected = image - corrected_image_128           
+    diff_image = image - prior 
+    corrected_image = fbp_recon - streak_prior
+    diff_corrected = image - corrected_image           
 
-    diff_ssim_recon = compare_ssim(fbp_recon_128.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
-    print(f"Diff SSIM recon = {diff_ssim_recon}")
-    diff_ssim_train = compare_ssim(corrected_image_128.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
-    print(f"Diff SSIM train = {diff_ssim_train}")
-    
-    corrected_image_padded = F.pad(corrected_image_128, (0,0, pads[2],pads[3], pads[0],pads[1]))
+    diff_ssim_recon = compare_ssim(fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+    diff_ssim_train = compare_ssim(corrected_image.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+   
+    global avg_ssim_train
+    global avg_ssim_recon
+    avg_ssim_train += diff_ssim_train
+    avg_ssim_recon += diff_ssim_recon
+    print(f"Diff SSIM TRAIN = {diff_ssim_train}, Diff SSIM RECON = {diff_ssim_recon}")
+    print(f"avg ssim TRAIN: {avg_ssim_train /(it + 1)}, avg ssim RECON: {avg_ssim_recon /(it + 1)}")
+
+    corrected_image_padded = F.pad(corrected_image, (0,0, pads[2],pads[3], pads[0],pads[1]))
     prior_padded = F.pad(prior, (0,0, pads[2],pads[3], pads[0],pads[1]))
 
-    fbp_padded = F.pad(fbp_recon_128, (0,0, pads[2],pads[3], pads[0],pads[1])) 
+    fbp_padded = F.pad(fbp_recon, (0,0, pads[2],pads[3], pads[0],pads[1])) 
     image_padded = F.pad(image, (0,0, pads[2],pads[3], pads[0],pads[1]))
-    #print(f"train shape {train_projections.shape}")
-    train_projections = train_projections.squeeze().unsqueeze(0)
-                     # [1, num_proj, x, 1]
+
+    train_projections = train_projections.squeeze().unsqueeze(0)     # [1, num_proj, x, 1]
     train_pad = int((config['img_size'] - config['num_proj']) / 2)
     train_projections_padded = F.pad(train_projections, (0,0, train_pad,train_pad)).unsqueeze(3)    
     
-    #print(f"im pa {image_padded.shape}, fb pa  ·{fbp_padded.shape} tr pa {train_projections_padded.shape}")
-    input_image = torch.cat((image_padded, fbp_padded, (train_projections_padded / torch.max(train_projections_padded))), 2)    
-    save_image_2d(input_image, os.path.join(image_directory, f"inputs_slice_{it +1}.png"))
     
     output_image =  torch.cat(((train_projections_padded / torch.max(train_projections_padded)), fbp_padded, prior_padded,  corrected_image_padded), 2)            
     save_image_2d(output_image, os.path.join(image_directory, f"outputs_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
