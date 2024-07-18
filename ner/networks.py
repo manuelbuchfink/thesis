@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 
 
-
 ############ Input Positional Encoding ############
 class Positional_Encoder(): 
     def __init__(self, params, bb_embedding_size):
@@ -19,9 +18,6 @@ class Positional_Encoder():
         x_embedding = (2. * np.pi * x).to("cuda") @ self.B.t().to("cuda") # @ is dot product, .t() is transpose
         x_embedding = torch.cat([torch.sin(x_embedding), torch.cos(x_embedding)], dim=-1).to("cuda")
         return x_embedding
-
-
-
                     
 ############ Feed Forward Network ############
 class FFN(nn.Module):
@@ -40,21 +36,6 @@ class FFN(nn.Module):
 
         layers.append(nn.Linear(hidden_dim, output_dim))
         layers.append(nn.Sigmoid())
-
-        self.model = nn.Sequential(*layers)
-
-    def forward(self, x):
-        out = self.model(x)
-        return out
-
-    
-###########Projection Layer###################
-class Projection(nn.Module):
-    def __init__(self, params, input_dim, resize_dim):        
-        super(Projection, self).__init__()
-
-        input_dim = input_dim  
-        layers = [nn.Linear(input_dim, resize_dim), nn.ReLU()]        
 
         self.model = nn.Sequential(*layers)
 

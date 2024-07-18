@@ -16,7 +16,7 @@ class Initialization_FanBeam:
     def __init__(self, image_height, image_width, num_proj, start_angle, proj_size):
         '''
         image_size: [x, y], assume x = y for each slice image
-        proj_size: [h, w]
+        proj_size: 512
         '''
         self.param = {}
     
@@ -40,7 +40,7 @@ class Initialization_FanBeam:
         self.param['end_angle'] = start_angle +  2 * np.pi # 360
         self.param['nProj'] = num_proj
 
-        ## Detector
+        ## Detector  
         self.param['sh'] = self.param['sx'] * (1.286) # Size of a detector pixel.  
 
         '''
@@ -149,12 +149,12 @@ class FanBeam2DProjector():
         # Filtered back-projection
         self.fbp = FBP_FanBeam(geo_param)
 
-    def forward_project(self, volume):
+    def forward_project(self, slice):
         '''
         Arguments:
-            volume: torch tensor with input size (B, img_x, img_y)
+            slice: torch tensor with input size (1, img_x, img_y)
         '''
-        proj_data = self.forward_projector(volume)
+        proj_data = self.forward_projector(slice)
         return proj_data
 
     def backward_project(self, projs):

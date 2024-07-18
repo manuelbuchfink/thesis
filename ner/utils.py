@@ -2,15 +2,13 @@ import os
 import yaml
 import numpy as np
 
-
 import torchvision.utils as vutils
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as T
-from torch.utils.data import DataLoader
-from data import ImageDataset_2D_Slices, ImageDataset_2D
-from skimage.metrics import structural_similarity as compare_ssim
 
+from torch.utils.data import DataLoader
+from skimage.metrics import structural_similarity as compare_ssim
 
 def get_config(config):
     with open(config, 'r') as stream:
@@ -27,24 +25,6 @@ def prepare_sub_folder(output_directory):
         os.makedirs(checkpoint_directory)
     return checkpoint_directory, image_directory
 
-
-def get_train_loader(dataset, batch_size, num_workers, sampler, pin_memory):   
-    
-    loader = DataLoader(dataset=dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler, pin_memory=pin_memory)
-    return loader
-
-def get_data_loader_slices(img_path, img_dim, batch_size):    
-
-    dataset = ImageDataset_2D_Slices(img_path, img_dim, batch_size)
-    loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
-    return loader
-
-def get_data_loader(img_path, img_dim, batch_size):    
-
-    dataset = ImageDataset_2D(img_path, img_dim)
-    loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
-    return loader
-
 def get_data_loader_hdf5(dataset, batch_size):    
 
     loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
@@ -57,25 +37,35 @@ def save_image_2d(tensor, file_name):
     tensor = tensor[0, ...].permute(2, 0, 1).cpu().data  # ([1, h, w, 1]) -> [1, h, w]
     image_grid = vutils.make_grid(tensor, padding=0, normalize=True, scale_each=True)
     vutils.save_image(image_grid, file_name, nrow=1)
-
+    
+def save_image(tensor, file_name):
+    '''
+    tensor: [1, h, w]
+    '''
+    image_grid = vutils.make_grid(tensor, padding=0, normalize=True, scale_each=True)
+    vutils.save_image(image_grid, file_name, nrow=1)
+    
 def reshape_tensor(previous_image, image):
     '''
     image: [1, h, w, 1]
     '''
     batch, height, width, channel = image.shape
-    transform = T.Resize((height, width))                           # resize by interpolation (bilinear) ! not what i want , -> maybe padding instead?
-    previous_image = transform(previous_image.permute(0, 3, 1, 2))  # ([1, x, y, 1]) -> [1, 1, x, y]  
+    transform = T.Resize((height, width))                           # resize by interpolation (bilinear)
+    previous_image = transform(previous_image.permute(0, 3, 1, 2))  # ([1, h, w, 1]) -> [1, 1, h, w]  
     return previous_image.permute(0, 2, 3, 1)                       # ([1, 1, h, w]) -> [1, h, w, 1]
 
 def get_image_pads(image_size, config):
-    
-    fbp_pad_xl = int((image_size[1][0] - 1))
-    fbp_pad_xr = int((config['img_size'] - (image_size[0][0] - 1)))
-    fbp_pad_yl = int((image_size[3][0] - 1))     
-    fbp_pad_yr = int((config['img_size'] - (image_size[2][0] - 1)))    
+    '''
+    rt: top of center  rb: bottom of center
+    cl: left of center   cr: right of center
+    '''
+    fbp_pad_rt = int((image_size[1][0] - 1))
+    fbp_pad_rb = int((config['img_size'] - (image_size[0][0] - 1)))
+    fbp_pad_cl = int((image_size[3][0] - 1))     
+    fbp_pad_cr = int((config['img_size'] - (image_size[2][0] - 1)))    
      
-    pads = [fbp_pad_xl, fbp_pad_xr, fbp_pad_yl, fbp_pad_yr]  
-    return pads
+    return [fbp_pad_rt, fbp_pad_rb, fbp_pad_cl, fbp_pad_cr]  
+    
 
 def reshape_model_weights(image_height, image_width, config, checkpoint_directory):
         '''
@@ -103,27 +93,26 @@ global avg_ssim_train
 global avg_ssim_recon
 avg_ssim_train = 0
 avg_ssim_recon = 0                   
-def shenanigans(skip, test_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config): # image saving mumbo jumbo
+def correct_image_slice(skip, test_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config): # image saving mumbo jumbo
     
-    prior = test_output.cuda()
-    image = image.cuda()
-
+    prior = test_output.cuda() # [1, h, w, 1]
+    image = image.cuda()       # [1, h, w, 1]
+    print(f"prior shape2 {prior.shape}, image shape 2{image.shape}, ")
     if skip:        
         prior = reshape_tensor(test_output, image).cuda()
-        projections = projectors[1].forward_project(prior.transpose(1, 3).squeeze(1))   # ([1, y, x])        -> [1, num_proj, x]
-        fbp_recon = projectors[1].backward_project(projections)                         # ([1, num_proj, x]) -> [1, y, x]
-        fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 3)                              # ([1, y, x])        -> [1, x, y, 1]
+        projections = projectors[1].forward_project(prior.transpose(1, 3).squeeze(1))   # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h])  -> [1, num_proj, orig_image_size]
+        fbp_recon = projectors[1].backward_project(projections)                         # ([1, num_proj, orig_image_size]) -> [1, w, h]
+        fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 3)                              # ([1, w, h])        -> [1, h, w, 1]
         
    
-    projs_prior_512 = projectors[0].forward_project(prior.transpose(1, 3).squeeze(1))  
-    fbp_prior_512 = projectors[0].backward_project(projs_prior_512)  
+    projs_prior_full_view = projectors[0].forward_project(prior.transpose(1, 3).squeeze(1))  
+    fbp_prior_full_view = projectors[0].backward_project(projs_prior_full_view)  
 
-    projs_prior = projectors[1].forward_project(prior.transpose(1, 3).squeeze(1))  
-    fbp_prior = projectors[1].backward_project(projs_prior) 
-
+    projs_prior_sparse_view = projectors[1].forward_project(prior.transpose(1, 3).squeeze(1))  
+    fbp_prior_sparse_view = projectors[1].backward_project(projs_prior_sparse_view) 
     
-    streak_prior = (fbp_prior - fbp_prior_512).unsqueeze(1).transpose(1, 3) 
-    fbp_prior = fbp_prior.unsqueeze(1).transpose(1, 3) 
+    streak_prior = (fbp_prior_sparse_view - fbp_prior_full_view).unsqueeze(1).transpose(1, 3) 
+    fbp_prior_sparse_view = fbp_prior_sparse_view.unsqueeze(1).transpose(1, 3) 
 
     '''
 
@@ -150,12 +139,11 @@ def shenanigans(skip, test_output, projectors, image, fbp_recon, train_projectio
     fbp_padded = F.pad(fbp_recon, (0,0, pads[2],pads[3], pads[0],pads[1])) 
     image_padded = F.pad(image, (0,0, pads[2],pads[3], pads[0],pads[1]))
 
-    train_projections = train_projections.squeeze().unsqueeze(0)     # [1, num_proj, x, 1]
+    train_projections = train_projections.squeeze().unsqueeze(0) 
     train_pad = int((config['img_size'] - config['num_proj_sparse_view']) / 2)
-    train_projections_padded = F.pad(train_projections, (0,0, train_pad,train_pad)).unsqueeze(3)    
-    
+    train_projections_padded = F.pad(train_projections, (0,0, train_pad,train_pad)).unsqueeze(3)        
     
     output_image =  torch.cat(((train_projections_padded / torch.max(train_projections_padded)), fbp_padded, prior_padded,  corrected_image_padded), 2)            
     save_image_2d(output_image, os.path.join(image_directory, f"outputs_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
-    
+    save_image_2d(corrected_image_padded, os.path.join(image_directory, f"corrected_image_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
     return train_projections, corrected_image_padded.cpu().detach().numpy()
