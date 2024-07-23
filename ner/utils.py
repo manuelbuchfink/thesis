@@ -25,6 +25,11 @@ def prepare_sub_folder(output_directory):
         os.makedirs(checkpoint_directory)
     return checkpoint_directory, image_directory
 
+def get_sub_folder(output_directory):
+    image_directory = os.path.join(output_directory, 'images')
+    checkpoint_directory = os.path.join(output_directory, 'checkpoints')
+
+    return checkpoint_directory, image_directory
 def get_data_loader_hdf5(dataset, batch_size):    
 
     loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
@@ -67,12 +72,12 @@ def get_image_pads(image_size, config):
     return [fbp_pad_rt, fbp_pad_rb, fbp_pad_cl, fbp_pad_cr]  
     
 
-def reshape_model_weights(image_height, image_width, config, checkpoint_directory):
+def reshape_model_weights(image_height, image_width, config, checkpoint_directory, id):
         '''
         Load pretrain model weights and resize them to fit the new image shape
         '''
         # Load pretrain model
-        model_path = os.path.join(checkpoint_directory, f"temp_model.pt")
+        model_path = os.path.join(checkpoint_directory, f"temp_model_{id}.pt")
         state_dict = torch.load(model_path)
 
         for weight in state_dict['net']: # reshape weights to fit new image\model size
@@ -91,20 +96,18 @@ def reshape_model_weights(image_height, image_width, config, checkpoint_director
     
 global avg_ssim_train
 global avg_ssim_recon
+
 avg_ssim_train = 0
-avg_ssim_recon = 0                   
-def correct_image_slice(skip, test_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config): # image saving mumbo jumbo
+avg_ssim_recon = 0                 
+def correct_image_slice(skip, zeros, test_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config): # image saving mumbo jumbo
+    '''
     
-    prior = test_output.cuda() # [1, h, w, 1]
-    image = image.cuda()       # [1, h, w, 1]
-    print(f"prior shape2 {prior.shape}, image shape 2{image.shape}, ")
-    if skip:        
-        prior = reshape_tensor(test_output, image).cuda()
-        projections = projectors[1].forward_project(prior.transpose(1, 3).squeeze(1))   # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h])  -> [1, num_proj, orig_image_size]
-        fbp_recon = projectors[1].backward_project(projections)                         # ([1, num_proj, orig_image_size]) -> [1, w, h]
-        fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 3)                              # ([1, w, h])        -> [1, h, w, 1]
-        
-   
+    Compute Corrected image
+    
+    '''
+    image = image.cuda()                                                                 # [1, h, w, 1]        
+    prior = (reshape_tensor(test_output, image).cuda() if skip else test_output.cuda())  # [1, h, w, 1]
+
     projs_prior_full_view = projectors[0].forward_project(prior.transpose(1, 3).squeeze(1))  
     fbp_prior_full_view = projectors[0].backward_project(projs_prior_full_view)  
 
@@ -114,36 +117,35 @@ def correct_image_slice(skip, test_output, projectors, image, fbp_recon, train_p
     streak_prior = (fbp_prior_sparse_view - fbp_prior_full_view).unsqueeze(1).transpose(1, 3) 
     fbp_prior_sparse_view = fbp_prior_sparse_view.unsqueeze(1).transpose(1, 3) 
 
-    '''
-
-    Compute Corrected image
-
-    '''
-    diff_image = image - prior 
-    corrected_image = fbp_recon - streak_prior
-    diff_corrected = image - corrected_image           
+    corrected_image = fbp_recon - streak_prior                  
 
     diff_ssim_recon = compare_ssim(fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
     diff_ssim_train = compare_ssim(corrected_image.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
    
     global avg_ssim_train
     global avg_ssim_recon
+
     avg_ssim_train += diff_ssim_train
     avg_ssim_recon += diff_ssim_recon
     print(f"Diff SSIM TRAIN = {diff_ssim_train}, Diff SSIM RECON = {diff_ssim_recon}")
-    print(f"avg ssim TRAIN: {avg_ssim_train /(it + 1)}, avg ssim RECON: {avg_ssim_recon /(it + 1)}")
+    print(f"avg ssim TRAIN: {avg_ssim_train /(it + 1 - zeros)}, avg ssim RECON: {avg_ssim_recon /(it + 1 - zeros)}")
 
     corrected_image_padded = F.pad(corrected_image, (0,0, pads[2],pads[3], pads[0],pads[1]))
-    prior_padded = F.pad(prior, (0,0, pads[2],pads[3], pads[0],pads[1]))
+    #save_image_2d(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
+    torch.save(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}.pt"))
 
-    fbp_padded = F.pad(fbp_recon, (0,0, pads[2],pads[3], pads[0],pads[1])) 
-    image_padded = F.pad(image, (0,0, pads[2],pads[3], pads[0],pads[1]))
+    #fbp_padded = F.pad(fbp_recon, (0,0, pads[2],pads[3], pads[0],pads[1])) 
+    # prior_padded = F.pad(prior, (0,0, pads[2],pads[3], pads[0],pads[1]))
+    # image_padded = F.pad(image, (0,0, pads[2],pads[3], pads[0],pads[1]))
 
-    train_projections = train_projections.squeeze().unsqueeze(0) 
-    train_pad = int((config['img_size'] - config['num_proj_sparse_view']) / 2)
-    train_projections_padded = F.pad(train_projections, (0,0, train_pad,train_pad)).unsqueeze(3)        
+    # train_projections = train_projections.squeeze().unsqueeze(0) 
+    # train_pad = int((config['img_size'] - config['num_proj_sparse_view']) / 2)
+    # train_projections_padded = F.pad(train_projections, (0,0, train_pad,train_pad)).unsqueeze(3)        
     
-    output_image =  torch.cat(((train_projections_padded / torch.max(train_projections_padded)), fbp_padded, prior_padded,  corrected_image_padded), 2)            
-    save_image_2d(output_image, os.path.join(image_directory, f"outputs_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
-    save_image_2d(corrected_image_padded, os.path.join(image_directory, f"corrected_image_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
-    return train_projections, corrected_image_padded.cpu().detach().numpy()
+    # output_image =  torch.cat(((train_projections_padded / torch.max(train_projections_padded)), fbp_padded, prior_padded,  corrected_image_padded), 2)            
+    # save_image_2d(output_image, os.path.join(image_directory, f"outputs_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
+    # save_image_2d(fbp_padded, os.path.join(image_directory, f"fbp_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
+    # save_image_2d(prior_padded, os.path.join(image_directory, f"prior_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
+    # save_image_2d(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
+    # save_image_2d(streak_prior, os.path.join(image_directory, f"streak_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
+    return train_projections

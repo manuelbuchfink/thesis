@@ -15,8 +15,8 @@ from odl.contrib import torch as odl_torch
 class Initialization_FanBeam:
     def __init__(self, image_height, image_width, num_proj, start_angle, proj_size):
         '''
-        image_size: [x, y], assume x = y for each slice image
-        proj_size: 512
+        image_size: [x, y]
+        proj_size: h = 512
         '''
         self.param = {}
     

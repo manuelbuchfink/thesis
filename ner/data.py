@@ -69,7 +69,8 @@ class ImageDataset_2D_hdf5(Dataset):
             rmax = bounding_box[1] + 1 if bounding_box[1] % 2 != 0 else bounding_box[1]
             cmin = bounding_box[2] - 1 if bounding_box[2] % 2 != 0 and bounding_box[2] > 0 else bounding_box[2]
             cmax = bounding_box[3] + 1 if bounding_box[3] % 2 != 0 else bounding_box[3] 
-
+            # rmin = cmin = 0
+            # rmax = cmax = 512
             self.slices[i] = torch.tensor(self.slices[i], dtype=torch.float32)[:, :, None] # [h, w, 1]  
             self.slices[i] = self.slices[i][rmin:rmax, cmin:cmax, :]
             

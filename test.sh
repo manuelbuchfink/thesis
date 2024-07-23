@@ -2,7 +2,7 @@
 
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=20
-#SBATCH --mem=20G
+#SBATCH --mem=24G
 #SBATCH --gpus=rtx4090:1
 #SBATCH -o ./Reports/slurm-%j.out # STDOUT
 

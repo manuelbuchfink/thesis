@@ -1,73 +1,60 @@
-import h5py
-from utils_simple import save_image
-
-import torchvision.utils as vutils
-import torch
-import torch.nn.functional as F
-import torchvision.transforms as T
-
-#image = h5py.File('./', 'r')   
-image = h5py.File('/lgrp/edu-2024-1-bsc-buchfiml/19_06_2024_corrected_and_sparse_volumes/rand_1024projs_7_corrected_with_128_projections_t0.9_skip_t_0.7_accuracy.hdf5', 'r')   
-
-print(list(image.keys()))
-
-image = image['Volume']
-
-slices = [None] * 512
-for i in range(512):           
-            
-    #split image into N evenly sized chunks
-    slices[i] = image[i,:,:]           # (512,512) = [h, w]
-    save_image(torch.tensor(slices[i], dtype=torch.float32), f"./u_im_aftersaving/image from saved volume, slice Nr. {i}.png")
-    
-image = h5py.File('/lgrp/edu-2024-1-bsc-buchfiml/19_06_2024_corrected_and_sparse_volumes/rand_1024projs_7_sparse_view_with_128_projections_t0.9_skip_t_0.7_accuracy.hdf5', 'r')   
-
-print(list(image.keys()))
-
-image = image['Volume']
-
-slices = [None] * 512
-for i in range(512):           
-            
-    #split image into N evenly sized chunks
-    slices[i] = image[i,:,:]           # (512,512) = [h, w]
-    save_image(torch.tensor(slices[i], dtype=torch.float32), f"./u_im_spare_after_saving/image from saved volume, slice Nr. {i}.png")
-
 # import h5py
+# from utils_simple import save_image
 
-# import numpy
+# import torchvision.utils as vutils
+# import torch
+# import torch.nn.functional as F
+# import torchvision.transforms as T
 
-# import matplotlib.pyplot as ply
+# #image = h5py.File('./', 'r')   
+# image = h5py.File('/lgrp/edu-2024-1-bsc-buchfiml/rand_1024projs_7_corrected_with_128_projections_t0.9_skip_t_0.7_accuracy_new.hdf5', 'r')   
 
-# import sys
+# print(list(image.keys()))
 
-# import time
+# image = image['Volume']
 
-# if len(sys.argv)<2:
+# slices = [None] * 512
+# for i in range(512):           
+            
+#     #split image into N evenly sized chunks
+#     slices[i] = image[i,:,:]           # (512,512) = [h, w]
+#     save_image(torch.tensor(slices[i], dtype=torch.float32), f"./u_im_aftersaving/image from saved volume, slice Nr. {i}.png")
 
-#    print ("Usage showHDF5 input.hdf5 proj/volume[0/1] slice_id")
+import h5py
 
-#    exit(1)
+import numpy
 
-# inFile= sys.argv[1]
+import matplotlib.pyplot as ply
 
-# tag="Image"
+import sys
 
-# if sys.argv[2]=="0":
+import time
 
-#    tag="Image"
+if len(sys.argv)<2:
 
-# elif sys.argv[2]=="1":
+   print ("Usage showHDF5 input.hdf5 proj/volume[0/1] slice_id")
 
-#    tag="Volume"
+   exit(1)
 
-# slice_id=int(sys.argv[3])
+inFile= sys.argv[1]
 
-# f_obj=h5py.File(inFile,'r')[tag][:,:,:]
+tag="Image"
 
-# dim=f_obj.shape
+if sys.argv[2]=="0":
 
-# t1=numpy.arange(0,512)
+   tag="Image"
+
+elif sys.argv[2]=="1":
+
+   tag="Volume"
+
+slice_id=int(sys.argv[3])
+
+f_obj=h5py.File(inFile,'r')[tag][:,:,:]
+
+dim=f_obj.shape
+
+t1=numpy.arange(0,512)
 
 # # ply.figure(1)
 
@@ -75,12 +62,12 @@ for i in range(512):
 
 # #ply.colorbar()
 
-# ply.figure(1)
+ply.figure(1)
+ply.title("Ground Truth")
+ply.imshow(f_obj[:,slice_id,:])
 
-# ply.imshow(f_obj[:,slice_id,:])
-
-# ply.colorbar()
-# ply.show()
+ply.colorbar()
+ply.show()
 # print(image['GridSpacing'])
 # for t in image['Type']:
 #     print(t)
