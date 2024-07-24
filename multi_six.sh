@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=4
-#SBATCH --cpus-per-task=40
+#SBATCH --ntasks=6
+#SBATCH --cpus-per-task=6
 #SBATCH --gpus=rtx4090:6
 #SBATCH --mem=18G
 
@@ -19,7 +19,7 @@ module load python/3.11/pytorch/
 
 echo "Waiting for setup to complete..."
 
-srun --exclusive --gpus=rtx4090:1 --ntasks=1 --cpus-per-task=40 --mem=20G python ner/setup.py --config ner/configs/ct_recon_2d.yaml
+srun --exclusive --gpus=rtx4090:1 --ntasks=1 --cpus-per-task=6 --mem=18G python ner/setup.py --config ner/configs/ct_recon_2d.yaml
 
 wait
 echo "Setup completed!"
@@ -36,6 +36,6 @@ wait
 echo "All parallel job steps completed!"
 echo "Waiting for file save to complete!"
 
-srun --exclusive --gpus=rtx4090:1 --ntasks=1 --cpus-per-task=40 --mem=20G python ner/join_parallel_recon_2d_hdf5.py --config ner/configs/ct_recon_2d.yaml # <-- write script to combine above parallel processed data to one  output file
+srun --exclusive --gpus=rtx4090:1 --ntasks=1 --cpus-per-task=6 --mem=18G python ner/join_parallel_recon_2d_hdf5.py --config ner/configs/ct_recon_2d.yaml # <-- write script to combine above parallel processed data to one  output file
 
 echo "File save complete!"
