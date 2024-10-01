@@ -34,6 +34,10 @@ def get_data_loader_hdf5(dataset, batch_size):
 
     loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
     return loader
+def get_data_loader_hdf5_canny(dataset, batch_size):
+
+    loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
+    return loader
 
 def save_image_2d(tensor, file_name):
     '''

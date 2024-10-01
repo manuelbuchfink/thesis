@@ -18,7 +18,7 @@ import numpy as np
 import h5py # pylint: disable=import-error
 
 from utils import get_config, get_sub_folder, save_image
-from ct_3d_projector import ConeBeam3DProjector
+from ct_3d_projector_ctutil import ConeBeam3DProjector
 
 import torch # pylint: disable=import-error
 import torch.backends.cudnn as cudnn # pylint: disable=import-error

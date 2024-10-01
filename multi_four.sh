@@ -25,10 +25,10 @@ wait
 echo "Setup completed!"
 echo "Waiting for parallel job steps to complete..."
 
-srun --exclusive --gpus=rtx4090:1 --ntasks=1 --cpus-per-task=10 --mem=5G python ner/train_ct_recon_2d_hdf5_multi.py --config ner/configs/ct_recon_2d.yaml --start 0 --end 128 --id 0 &
-srun --exclusive --gpus=rtx4090:1 --ntasks=1 --cpus-per-task=10 --mem=5G python ner/train_ct_recon_2d_hdf5_multi.py --config ner/configs/ct_recon_2d.yaml --start 128 --end 256 --id 1 &
-srun --exclusive --gpus=rtx4090:1 --ntasks=1 --cpus-per-task=10 --mem=5G python ner/train_ct_recon_2d_hdf5_multi.py --config ner/configs/ct_recon_2d.yaml --start 256 --end 384 --id 2 &
-srun --exclusive --gpus=rtx4090:1 --ntasks=1 --cpus-per-task=10 --mem=5G python ner/train_ct_recon_2d_hdf5_multi.py --config ner/configs/ct_recon_2d.yaml --start 384 --end 512 --id 3 &
+# srun --exclusive --gpus=rtx4090:1 --ntasks=1 --cpus-per-task=10 --mem=5G python ner/train_ct_recon_2d_hdf5_multi.py --config ner/configs/ct_recon_2d.yaml --start 0 --end 128 --id 0 &
+# srun --exclusive --gpus=rtx4090:1 --ntasks=1 --cpus-per-task=10 --mem=5G python ner/train_ct_recon_2d_hdf5_multi.py --config ner/configs/ct_recon_2d.yaml --start 128 --end 256 --id 1 &
+# srun --exclusive --gpus=rtx4090:1 --ntasks=1 --cpus-per-task=10 --mem=5G python ner/train_ct_recon_2d_hdf5_multi.py --config ner/configs/ct_recon_2d.yaml --start 256 --end 384 --id 2 &
+# srun --exclusive --gpus=rtx4090:1 --ntasks=1 --cpus-per-task=10 --mem=5G python ner/train_ct_recon_2d_hdf5_multi.py --config ner/configs/ct_recon_2d.yaml --start 384 --end 512 --id 3 &
 
 wait
 echo "All parallel job steps completed!"

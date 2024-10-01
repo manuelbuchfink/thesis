@@ -14,12 +14,13 @@ import shutil
 import gc
 import time
 import warnings
+import wandb
 
 import h5py # pylint: disable=import-error
 from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_image, save_image_2d
 
 from networks import Positional_Encoder_3D, FFN_3D
-from ct_3d_projector import ConeBeam3DProjector
+from ct_3d_projector_ctutil import ConeBeam3DProjector
 
 import torch # pylint: disable=import-error
 import torch.backends.cudnn as cudnn # pylint: disable=import-error
@@ -70,6 +71,22 @@ print('Load volume: {}'.format(config['img_path']))
 dataset = ImageDataset_3D_hdf5(config['img_path'], config['dataset_size'])
 data_loader = get_data_loader_hdf5(dataset, batch_size=config['batch_size'])
 
+
+wandb.init(
+    #set the wandb project where this run will be logged
+    project="ct-image-reconstruction",
+
+    # track hyperparameters and run metadata
+    config={
+    "learning_rate": config['lr'],
+    "architecture": config['model'],
+    "dataset": config['data'],
+    "epochs": config['max_iter'],
+    "fourier feature standard deviation" : config['encoder']['scale'],
+    "img size" : config['img_size'],
+    "batch size" : config['batch_size'],
+    }
+)
 for it, (grid, image) in enumerate(data_loader):
 
     # Input coordinates (h,w) grid and target image
@@ -122,8 +139,8 @@ for it, (grid, image) in enumerate(data_loader):
         train_output = model(train_embedding)  # train model on grid: ([1, x, y, embedding_size]) > [1, x, y, 1]
 
         train_projections = ct_projector_sparse_view.forward_project(train_output.transpose(1, 4).squeeze(1)).to("cuda")      # evaluate by forward projecting
-        #train_loss = (0.5 * loss_fn(train_projections.to("cuda"), projections.to("cuda")))                                    # compare forward projected grid with sparse view projection
-        train_loss = (0.5 * loss_fn(train_output.to("cuda"), image.to("cuda")))
+        train_loss = (0.5 * loss_fn(train_projections.to("cuda"), projections.to("cuda")))                                    # compare forward projected grid with sparse view projection
+        #train_loss = (0.5 * loss_fn(train_output.to("cuda"), image.to("cuda")))
         train_loss.backward()
         optim.step()
 
@@ -135,6 +152,7 @@ for it, (grid, image) in enumerate(data_loader):
                 fbp_prior = ct_projector_sparse_view.backward_project(train_projections).unsqueeze(1).transpose(1, 4)
                 test_ssim = compare_ssim(fbp_prior.transpose(1,4).squeeze().cpu().numpy(), fbp_recon.transpose(1,4).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
                 #test_ssim_direct = compare_ssim(train_projections.squeeze().cpu().detach().numpy(), projections.squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+                wandb.log({"ssim": test_ssim, "loss": train_loss})
             end = time.time()
 
             print("[Slice Nr. {} Iteration: {}/{}] | FBP SSIM: {:.4g} | Time Elapsed: {}".format(it + 1, iterations + 1, max_iter, test_ssim, (end - start) / 60))

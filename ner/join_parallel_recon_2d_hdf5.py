@@ -1,6 +1,6 @@
 
 '''
-adapted from 
+adapted from
 https://arxiv.org/pdf/2108.10991
 NeRP: Implicit Neural Representation Learning
 with Prior Embedding for Sparsely Sampled
@@ -12,7 +12,7 @@ import os
 import argparse
 import shutil
 sys.path.append('zhome/buchfiml/miniconda3/envs/odl/lib/python3.11/site-packages')
-sys.path.append(os.getcwd()) 
+sys.path.append(os.getcwd())
 import wandb
 import torch
 import torch.backends.cudnn as cudnn
@@ -75,17 +75,17 @@ corrected_images = []
 
 for i in range(1, len(os.listdir(image_directory)) + 1):
     corrected_images.append(torch.load(os.path.join(image_directory, f'corrected_slice_{i}.pt')).cuda())
-    
+
 corrected_images = torch.cat(corrected_images, 0).cpu().detach().numpy()
 #sparse_images = torch.cat(sparse_images, 0).squeeze()
 #print(f"total iterations: {total_its}")
 
 # save corrected slices in new hdf5 Volume
-corrected_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5") 
-print(f"saved to {config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")  
+corrected_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
+print(f"saved to {config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
 
-#sparse_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_sparse_view_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5") 
-#print(f"saved to {config['data'][:-3]}_sparse_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")  
+#sparse_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_sparse_view_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
+#print(f"saved to {config['data'][:-3]}_sparse_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
 
 gridSpacing=[5.742e-05, 5.742e-05, 5.742e-05]
 gridOrigin=[0, 0 ,0]
@@ -93,20 +93,20 @@ with h5py.File(corrected_image_path,'w') as hdf5:
     hdf5.create_dataset("Type", data=[86,111,108,117,109,101], shape=(6,1))
     hdf5.create_dataset("GridOrigin", data=gridOrigin, shape=(3,1))
     hdf5.create_dataset("GridSpacing", data=gridSpacing, shape=(3,1))
-    hdf5.create_dataset("Volume", data=np.asarray(corrected_images))      
+    hdf5.create_dataset("Volume", data=np.asarray(corrected_images))
 
 # with h5py.File(sparse_image_path,'w') as hdf5:
 #     hdf5.create_dataset("Type", data=[86,111,108,117,109,101], shape=(6,1))
 #     hdf5.create_dataset("GridOrigin", data=gridOrigin, shape=(3,1))
 #     hdf5.create_dataset("GridSpacing", data=gridSpacing, shape=(3,1))
-#     hdf5.create_dataset("Volume", data=np.asarray(sparse_images))   
-        
-# image_fbp_direct = h5py.File(sparse_image_path, 'r')   
+#     hdf5.create_dataset("Volume", data=np.asarray(sparse_images))
+
+# image_fbp_direct = h5py.File(sparse_image_path, 'r')
 # image_fbp_direct = image_fbp_direct['Volume']
 
 # slices_sparse = [None] * (512)
-# for i in range(512):           
-            
+# for i in range(512):
+
 #     #split image into N evenly sized chunks
 #     slices_sparse[i] = image_fbp_direct[i,:,:].squeeze()           # (512,512) = [h, w]
 #     save_image(torch.tensor(slices_sparse[i], dtype=torch.float32), f"./u_im_spare_after_saving/image from saved volume, slice Nr. {i}.png")
@@ -115,8 +115,8 @@ with h5py.File(corrected_image_path,'w') as hdf5:
 # image_correct = h5py.File(corrected_image_path, 'r')
 # image_correct = image_correct['Volume']
 # slices_correct = [None] * (512)
-# for i in range(512):           
-            
+# for i in range(512):
+
 #     #split image into N evenly sized chunks
 #     slices_correct[i] = image_correct[i,:,:].squeeze()           # (512,512) = [h, w]
 #     save_image(torch.tensor(slices_correct[i], dtype=torch.float32), f"./u_im_correct_after_saving/image from saved volume, slice Nr. {i}.png")

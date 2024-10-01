@@ -3,8 +3,11 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 import h5py
-from utils import save_image
+from utils import get_config
 import torch.nn.functional as F
+from skimage.feature import canny
+from skimage.filters import sobel
+from ct_2d_projector import FanBeam2DProjector
 
 def display_tensor_stats(tensor):
     shape, vmin, vmax, vmean, vstd = tensor.shape, tensor.min(), tensor.max(), torch.mean(tensor), torch.std(tensor)
@@ -38,7 +41,7 @@ def bounding_box_2D(img):   # function to compute minimal bounding box for one s
     return rmin, rmax, cmin, cmax
 
 class ImageDataset_2D_hdf5(Dataset):
-    def __init__(self, img_path, img_dim, num_slices):
+    def __init__(self, img_path, img_dim, num_slices, parser):
         self.img_dim = (img_dim, img_dim) # [h, w]
 
         #read hdf5 image
@@ -69,6 +72,11 @@ class ImageDataset_2D_hdf5(Dataset):
             compute the minimal bounding box encompassing the central object
 
             '''
+
+            '''
+            pre-processing step: canny edge detector to get rid of streak artifacts
+            '''
+
             bounding_box = bounding_box_2D(self.slices[i]) # compute bounding box
 
             # make sure that bounding box borders are even numbered
@@ -94,6 +102,79 @@ class ImageDataset_2D_hdf5(Dataset):
     def __len__(self):
         return len(self.slices) # iterations
 
+class ImageDataset_2D_hdf5_canny(Dataset):
+    def __init__(self, img_path, img_dim, num_slices, parser):
+        self.img_dim = (img_dim, img_dim) # [h, w]
+
+        #read hdf5 image
+        image = h5py.File(img_path, 'r')           # list(image.keys()) = ['Tiles'], ['Volume']
+        image = image['Volume']                    # (512,512,512) = [depth, height, width]
+
+        print(f"vol shape {image}")
+
+        self.slices = [None] * num_slices
+        self.grids = [None] * num_slices
+        self.img_dims = [None] * num_slices
+
+        opts = parser.parse_args()
+        config = get_config(opts.config)
+
+        for i in range(num_slices):
+
+            #split image into N evenly sized chunks
+            self.slices[i] = image[i,:,:]           # (512,512) = [h, w]
+            #save_image(torch.tensor(self.slices[i], dtype=torch.float32), f"./untouched_im/image untouched, slice Nr. {i}.png")
+
+            # Interpolate image to predefined size in case of smaller img size
+            self.slices[i] = cv2.resize(self.slices[i], self.img_dim[::-1], interpolation=cv2.INTER_LINEAR)
+
+            # Scaling normalization -> [0, 1]
+            self.slices[i] = self.slices[i] / np.max(self.slices[i])
+            self.slices[i] = np.nan_to_num(self.slices[i])
+
+
+            #process availalbe data to simulate sparse view projections
+            ct_projector_sparse_view = FanBeam2DProjector(image_height=self.slices[i][0], image_width=self.slices[i][1], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+
+            projections = ct_projector_sparse_view.forward_project(image.transpose(1, 3).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
+            fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
+
+            fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 3)                                          # [1, h, w, 1]
+
+            #Canny Edge Detector to rid streak artifacts
+            canny_image = fbp_recon[0,i,:,:].squeeze().cpu().detach().numpy()
+            canny_image = torch.tensor(canny(image=canny_image, sigma=4), dtype=torch.float32).unsqueeze(0) # canny edge detector
+
+
+            '''
+
+            compute the minimal bounding box encompassing the central object
+
+            '''
+            bounding_box = bounding_box_2D(canny_image) # compute bounding box
+
+            # make sure that bounding box borders are even numbered
+            rmin = bounding_box[0] - 1 if bounding_box[0] % 2 != 0 and bounding_box[0] > 0 else bounding_box[0]
+            rmax = bounding_box[1] + 1 if bounding_box[1] % 2 != 0 else bounding_box[1]
+            cmin = bounding_box[2] - 1 if bounding_box[2] % 2 != 0 and bounding_box[2] > 0 else bounding_box[2]
+            cmax = bounding_box[3] + 1 if bounding_box[3] % 2 != 0 else bounding_box[3]
+            # rmin = cmin = 0
+            # rmax = cmax = 512
+            self.slices[i] = torch.tensor(self.slices[i], dtype=torch.float32)[:, :, None] # [h, w, 1]
+            self.slices[i] = self.slices[i][rmin:rmax, cmin:cmax, :]
+
+            self.img_dims[i] =  (rmax, rmin, cmax, cmin)                                   #[h_new, w_new]
+            img_dim = (self.img_dims[i][0] - self.img_dims[i][1], self.img_dims[i][2] - self.img_dims[i][3])
+
+            self.grids[i] = (create_grid(*img_dim))
+            #display_tensor_stats(self.slices[i])
+
+
+    def __getitem__(self, idx):
+        return self.grids[idx], self.slices[idx], self.img_dims[idx]               #return data tuple
+
+    def __len__(self):
+        return len(self.slices) # iterations
 
 class ImageDataset_3D_hdf5(Dataset):
     def __init__(self, img_path, img_dim):
