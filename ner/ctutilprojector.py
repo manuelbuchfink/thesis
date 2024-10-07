@@ -81,3 +81,32 @@ projectionzshift_pixel  | ?
 InitialAngle            | 0
 
 '''
+'''
+Equal Definitions: (ctutils | my code)
+        SDD | dso + dde = 1500
+        SOD | dso  = 1000
+        ODD | dde = 500
+        magnification | (dso + dde) / ddo = 1500 / 1000 = 1.5
+        num_projs | nProj
+        voxelSize | nx * ny * nz (image voxel)
+        pixel size | nx * ny
+        Volumen_num_xz | proj_size (512)
+        Volumen_num_y | 1
+        detector_width | self.param['sw'] = np.sqrt(self.param['sx']**2 + self.param['sy']**2) * (1.5)
+        proj_angles | odl.uniform_partition(min_pt=param.param['start_angle'], max_pt=param.param['end_angle'], shape=param.param['nProj'])
+        proj_geom | odl.tomo.ConeBeamGeometry(apart=angle_partition, dpart=detector_partition, src_radius=param.param['dso'], det_radius=param.param['dde']) (fanflat)
+
+Deviationg Definitions:
+        initialAngle = 0; currently no angle shift of (1/4*2*np.pi) applied but could be done
+
+Not specified Definitions:
+        
+
+        proj_id (not used with odl)
+        (sino_id, sino) (not used with odl)
+
+        axis_pixelposition (?)
+        ObjextOffsetX (?)
+
+
+'''

@@ -21,7 +21,7 @@ from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_ima
 
 from networks import Positional_Encoder_3D, FFN_3D
 from ct_3d_projector_ctutil import ConeBeam3DProjector
-
+#from ct_geometry_projector_new import ConeBeam3DProjector
 import torch # pylint: disable=import-error
 import torch.backends.cudnn as cudnn # pylint: disable=import-error
 import torch.nn.functional as F # pylint: disable=import-error
@@ -93,6 +93,7 @@ for it, (grid, image) in enumerate(data_loader):
     grid = grid.cuda()      # [1, h, w, d, 3], value range = [0, 1]
     image = image.cuda()    # [1, h, w, d, 1], value range = [0, 1]
     grid = grid[:,int(int(opts.id) * 128):int(((int(opts.id) + 1) * 128)),:,:]
+    #image = image[:,int(int(opts.id) * 128):int(((int(opts.id) + 1) * 128)),:,:]
     print(f"id 0 {int(int(opts.id) * 128)} id 1 {int(((int(opts.id) + 1) * 128))}")
     print(grid.shape, image.shape)
 
@@ -107,7 +108,7 @@ for it, (grid, image) in enumerate(data_loader):
 
     #ct_projector_full_view = ConeBeam3DProjector(config['img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_full_view'])
     ct_projector_sparse_view = ConeBeam3DProjector(config['img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
-
+    #ct_projector_sparse_view = ConeBeam3DProjector(config['cb_para'])
     #projectors = [ct_projector_full_view, ct_projector_sparse_view]
 
     projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
@@ -140,7 +141,7 @@ for it, (grid, image) in enumerate(data_loader):
 
         train_projections = ct_projector_sparse_view.forward_project(train_output.transpose(1, 4).squeeze(1)).to("cuda")      # evaluate by forward projecting
         train_loss = (0.5 * loss_fn(train_projections.to("cuda"), projections.to("cuda")))                                    # compare forward projected grid with sparse view projection
-
+        #train_loss = (0.5 * loss_fn(train_output.to("cuda"), image.to("cuda")))
         train_loss.backward()
         optim.step()
 
@@ -151,7 +152,7 @@ for it, (grid, image) in enumerate(data_loader):
             with torch.no_grad():
                 fbp_prior = ct_projector_sparse_view.backward_project(train_projections).unsqueeze(1).transpose(1, 4)
                 test_ssim = compare_ssim(fbp_prior.transpose(1,4).squeeze().cpu().numpy(), fbp_recon.transpose(1,4).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
-
+                #test_ssim_direct = compare_ssim(train_projections.squeeze().cpu().detach().numpy(), projections.squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
                 wandb.log({"ssim": test_ssim, "loss": train_loss})
             end = time.time()
 
@@ -160,3 +161,87 @@ for it, (grid, image) in enumerate(data_loader):
 
             if (iterations + 1) == max_iter:
                 torch.save(train_output, os.path.join(image_directory, f"prior_volume_{opts.id}.pt"))
+                #torch.save(fbp_recon, os.path.join(image_directory, f"fbp_volume_{opts.id}.pt"))
+#                 prior = train_output.cuda()  # [1, h, w, 1]
+
+#                 projs_prior_full_view = projectors[0].forward_project(prior.transpose(1, 4).squeeze(1))
+#                 fbp_prior_full_view = projectors[0].backward_project(projs_prior_full_view)
+
+#                 projs_prior_sparse_view = projectors[1].forward_project(prior.transpose(1, 4).squeeze(1))
+#                 fbp_prior_sparse_view = projectors[1].backward_project(projs_prior_sparse_view)
+
+#                 streak_prior = (fbp_prior_sparse_view - fbp_prior_full_view).unsqueeze(1).transpose(1, 4)
+#                 fbp_prior_sparse_view = fbp_prior_sparse_view.unsqueeze(1).transpose(1, 4)
+
+#                 corrected_image = fbp_recon - streak_prior
+
+#                 diff_ssim_recon = compare_ssim(fbp_recon.transpose(1,4).squeeze().cpu().detach().numpy(), image.transpose(1,4).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+#                 diff_ssim_train = compare_ssim(corrected_image.transpose(1,4).squeeze().cpu().detach().numpy(), image.transpose(1,4).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+
+#                 print(f"Diff SSIM TRAIN = {diff_ssim_train}, Diff SSIM RECON = {diff_ssim_recon}")
+
+
+
+#                 fbp_padded = F.pad(fbp_recon, (0,0, pads[2],pads[3], pads[0],pads[1]))
+#                 prior_padded = F.pad(prior, (0,0, pads[2],pads[3], pads[0],pads[1]))
+#                 image_padded = F.pad(image, (0,0, pads[2],pads[3], pads[0],pads[1]))
+
+#                 train_projections = train_projections.squeeze().unsqueeze(0)
+#                 train_pad = int((config['img_size'] - config['num_proj_sparse_view']) / 2)
+#                 train_projections_padded = F.pad(train_projections, (0,0, train_pad,train_pad)).unsqueeze(3)
+
+#                 output_image =  torch.cat(((train_projections_padded / torch.max(train_projections_padded)), fbp_padded, prior_padded,  corrected_image_padded), 2)
+#                 save_image_2d(output_image, os.path.join(image_directory, f"outputs_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
+#                 save_image_2d(fbp_padded, os.path.join(image_directory, f"fbp_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
+#                 save_image_2d(prior_padded, os.path.join(image_directory, f"prior_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
+#                 save_image_2d(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
+#                 save_image_2d(streak_prior, os.path.join(image_directory, f"streak_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
+
+
+#         total_its+=1
+
+#     # Save current model
+#     model_name = os.path.join(checkpoint_directory, 'temp_model.pt')
+#     torch.save({'net': model.state_dict(), \
+#                 'enc': encoder.B, \
+#                 'opt': optim.state_dict(), \
+#                 }, model_name)
+
+
+
+
+# corrected_images = torch.cat(corrected_images, 0)
+# sparse_images = torch.cat(sparse_images, 0).squeeze()
+# print(f"total iterations: {total_its}")
+
+# # save corrected slices in new hdf5 Volume
+# corrected_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections.hdf5")
+# print(f"saved to {config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections.hdf5")
+
+# sparse_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_sparse_view_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
+# print(f"saved to {config['data'][:-3]}_sparse_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
+
+# gridSpacing=[5.742e-05, 5.742e-05, 5.742e-05]
+# gridOrigin=[0, 0 ,0]
+# with h5py.File(corrected_image_path,'w') as hdf5:
+#     hdf5.create_dataset("Type", data=[86,111,108,117,109,101], shape=(6,1))
+#     hdf5.create_dataset("GridOrigin", data=gridOrigin, shape=(3,1))
+#     hdf5.create_dataset("GridSpacing", data=gridSpacing, shape=(3,1))
+#     hdf5.create_dataset("Volume", data=np.asarray(corrected_image))
+
+# with h5py.File(sparse_image_path,'w') as hdf5:
+#     hdf5.create_dataset("Type", data=[86,111,108,117,109,101], shape=(6,1))
+#     hdf5.create_dataset("GridOrigin", data=gridOrigin, shape=(3,1))
+#     hdf5.create_dataset("GridSpacing", data=gridSpacing, shape=(3,1))
+#     hdf5.create_dataset("Volume", data=np.asarray(sparse_images))
+
+# # image_fbp_direct = h5py.File(sparse_image_path, 'r')
+# # image_fbp_direct = image_fbp_direct['Volume']
+# corrected_volume = h5py.File(corrected_image_path, 'r')
+# corrected_volume = corrected_volume['Volume']
+# slices_sparse = [None] * int(config['img_size'][0])
+# for i in range(int(config['img_size'][0])):
+
+#     #split image into N evenly sized chunks
+#     slices_sparse[i] = corrected_volume[i,:,:]           # (512,512) = [h, w]
+#     save_image(torch.tensor(slices_sparse[i], dtype=torch.float32), f"./u_volume_corrected_after_saving/image from saved volume, slice Nr. {i}.png")

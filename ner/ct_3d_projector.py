@@ -40,8 +40,8 @@ class Initialization_ConeBeam:
         self.param['nProj'] = num_proj
 
         ## Detector
-        self.param['sh'] = self.param['sx'] * (1.5) # Size of a detector pixel.
-        self.param['sw'] = np.sqrt(self.param['sx']**2 + self.param['sy']**2) * (1.5)
+        self.param['sh'] = self.param['sx'] * (1.5) # Size of a detector pixel. 768
+        self.param['sw'] = np.sqrt(self.param['sx']**2 + self.param['sy']**2) * (1.5) # 724
         self.param['nh'] = proj_size[0]
         self.param['nw'] = proj_size[1]
         '''

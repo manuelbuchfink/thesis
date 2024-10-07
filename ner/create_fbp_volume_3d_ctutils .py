@@ -19,8 +19,8 @@ import torch # pylint: disable=import-error
 import torch.backends.cudnn as cudnn # pylint: disable=import-error
 import h5py # pylint: disable=import-error
 
-from ct_3d_projector_ctutil import ConeBeam3DProjector
-
+#from ct_3d_projector_ctutil import ConeBeam3DProjector
+from ct_geometry_projector_new import ConeBeam3DProjector
 from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_image
 from data import ImageDataset_3D_hdf5_direct
 from skimage.feature import canny
@@ -75,19 +75,74 @@ for it, (grid, image) in enumerate(data_loader):
 
     image = image.cuda()    # [1, h, w, d, 1], value range = [0, 1]
 
-    ct_projector_sparse_view = ConeBeam3DProjector(config['fbp_img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+    ct_projector_sparse_view = ConeBeam3DProjector(config['cb_para_full_fbp'])
+    #ct_projector_sparse_view = ConeBeam3DProjector(config['fbp_img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+
+    #ct_projector_full_view = ConeBeam3DProjector(config['fbp_img_size'], proj_size=config['proj_size'], num_proj=512)
 
     projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
     fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
 
     fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
+    # full_proj = ct_projector_full_view.forward_project(fbp_recon.transpose(1, 4).squeeze(1))
+    # full_fbp = ct_projector_full_view.backward_project(full_proj)
+    # full_fbp = full_fbp.unsqueeze(1).transpose(1, 4)
+    # '''
+    # Canny Edge Detector as first step to bounding box (more accurate)
 
+    # vs
+
+    # Sobel (cheaper)
+
+    # '''
+    # canny_volume = [None] * 512
+    # for i in range(0,512,1):
+    #     canny_image = fbp_recon[0,i,:,:].squeeze().cpu().detach().numpy()
+    #     #canny_volume[i] = torch.tensor(canny(image=canny_image, sigma=4), dtype=torch.float32).unsqueeze(0) # canny edge detector
+    #     canny_volume[i] = torch.tensor(sobel(image=canny_image), dtype=torch.float32).unsqueeze(0) # sobel operator
+    # #print(f"canny_volume shape {torch.tensor(canny_volume).shape}")
+    # canny_volume = torch.cat(canny_volume, 0).squeeze().cuda()
+
+    # print(f"canyy shape {canny_volume.shape}")
+
+# save corrected slices in new hdf5 Volume
 fbp_volume_path = os.path.join(image_directory, f"../{config['data'][:-3]}_fbp_with_{config['num_proj_sparse_view']}_projections.hdf5")
 print(f"saved to {config['data'][:-3]}_fbp_with_{config['num_proj_sparse_view']}_projections.hdf5")
 
+#fbp_volume = canny_volume
 fbp_volume = fbp_recon.squeeze().cuda()
 torch.save(fbp_volume, os.path.join(image_directory, f"fbp_volume.pt"))
 
+
+
+# '''
+# canny volume test direkt
+# '''
+
+# canny_volume = canny_volume.cpu().detach().numpy()
+
+# # save corrected slices in new hdf5 Volume
+# canny_full_path = os.path.join(image_directory, f"../{config['data'][:-3]}_canny_full_{config['num_proj_sparse_view']}_projections.hdf5")
+# print(f"saved to {config['data'][:-3]}_canny_full_{config['num_proj_sparse_view']}_projections.hdf5")
+
+
+# gridSpacing=[5.742e-05, 5.742e-05, 5.742e-05]
+# gridOrigin=[0, 0 ,0]
+# with h5py.File(canny_full_path,'w') as hdf5:
+#     hdf5.create_dataset("Type", data=[86,111,108,117,109,101], shape=(6,1))
+#     hdf5.create_dataset("GridOrigin", data=gridOrigin, shape=(3,1))
+#     hdf5.create_dataset("GridSpacing", data=gridSpacing, shape=(3,1))
+#     hdf5.create_dataset("Volume", data=np.asarray(canny_volume))
+
+# canny_volume = h5py.File(canny_full_path, 'r')
+# canny_volume = canny_volume['Volume']
+# slices_sparse = [None] * 512
+
+# for i in range(512):
+
+#     #split image into N evenly sized chunks
+#     slices_sparse[i] = canny_volume[i,:,:].squeeze()           # (512,512) = [h, w]
+#     save_image(torch.tensor(slices_sparse[i], dtype=torch.float32), f"./u_im_canny/image from saved volume, slice Nr. {i}.png")
 
 fbp_volume = fbp_volume.cpu().detach().numpy()
 
@@ -108,3 +163,33 @@ for i in range(512):
     #split image into N evenly sized chunks
     slices_sparse[i] = fbp_volume[i,:,:].squeeze()           # (512,512) = [h, w]
     save_image(torch.tensor(slices_sparse[i], dtype=torch.float32), f"./u_im_spare_after_saving/image from saved volume, slice Nr. {i}.png")
+
+
+
+# '''
+# full volume test direkt
+# '''
+# full_volume = full_fbp.squeeze().cuda()
+# full_volume = full_volume.cpu().detach().numpy()
+
+# # save corrected slices in new hdf5 Volume
+# fbp_full_path = os.path.join(image_directory, f"../{config['data'][:-3]}_fbp_full_{config['num_proj_sparse_view']}_projections.hdf5")
+# print(f"saved to {config['data'][:-3]}_fbp_full_{config['num_proj_sparse_view']}_projections.hdf5")
+
+
+
+# with h5py.File(fbp_full_path,'w') as hdf5:
+#     hdf5.create_dataset("Type", data=[86,111,108,117,109,101], shape=(6,1))
+#     hdf5.create_dataset("GridOrigin", data=gridOrigin, shape=(3,1))
+#     hdf5.create_dataset("GridSpacing", data=gridSpacing, shape=(3,1))
+#     hdf5.create_dataset("Volume", data=np.asarray(full_volume))
+
+# full_volume = h5py.File(fbp_full_path, 'r')
+# full_volume = full_volume['Volume']
+# slices_sparse = [None] * 512
+
+# for i in range(512):
+
+#     #split image into N evenly sized chunks
+#     slices_sparse[i] = full_volume[i,:,:].squeeze()           # (512,512) = [h, w]
+#     save_image(torch.tensor(slices_sparse[i], dtype=torch.float32), f"./u_im_correct_after_saving/image from saved volume, slice Nr. {i}.png")
