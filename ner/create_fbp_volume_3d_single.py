@@ -75,15 +75,15 @@ for it, (grid, image) in enumerate(data_loader):
 
     image = image.cuda()    # [1, h, w, d, 1], value range = [0, 1]
 
-    ct_projector_sparse_view = ConeBeam3DProjector(config['fbp_img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+    #ct_projector_sparse_view = ConeBeam3DProjector(config['fbp_img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
 
-    projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
-    fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
+    #projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
+    #fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
 
-    fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
+    #fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
 
-fbp_volume_path = os.path.join(image_directory, f"../{config['data'][:-3]}_fbp_with_{config['num_proj_sparse_view']}_projections.hdf5")
-print(f"saved to {config['data'][:-3]}_fbp_with_{config['num_proj_sparse_view']}_projections.hdf5")
+fbp_volume_path = os.path.join(image_directory, f"../{config['data'][:-5]}_fbp_with_{config['num_proj_sparse_view']}_projections.hdf5")
+print(f"saved to {config['data'][:-5]}_fbp_with_{config['num_proj_sparse_view']}_projections.hdf5")
 
-fbp_volume = fbp_recon.squeeze().cuda()
+fbp_volume = image.squeeze().cuda()
 torch.save(fbp_volume, os.path.join(image_directory, f"fbp_volume.pt"))

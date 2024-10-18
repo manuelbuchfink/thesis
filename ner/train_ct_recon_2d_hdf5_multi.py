@@ -81,6 +81,8 @@ skips = 0
 previous_projection = None
 total_its = 0
 zeros = 0
+avg_ssim_recon = 0
+avg_ssim_train = 0
 print(f"start = {opts.start}, end = {opts.end}")
 for it, (grid, image, image_size) in enumerate(data_loader):
     if it >= int(opts.start) and it < int(opts.end):
@@ -131,7 +133,9 @@ for it, (grid, image, image_size) in enumerate(data_loader):
                 print(f"SSIM passed, skipping training for slice nr. {it + 1}")
                 skip = True
                 skips+=1
-                previous_image = correct_image_slice(skip, zeros, train_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config)
+                previous_image, ssim_recon, ssim_train = correct_image_slice(skip, zeros, train_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config)
+                avg_ssim_recon += ssim_recon
+                avg_ssim_train += ssim_train
                 continue
             else:
                 skip = False
@@ -193,16 +197,21 @@ for it, (grid, image, image_size) in enumerate(data_loader):
 
                 # get prior image once training is finished
                 if test_ssim > config['accuracy_goal']: # stop early if accuracy is above threshold
-                    previous_projection = correct_image_slice(skip, zeros, train_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config)
+                    previous_projection, ssim_recon, ssim_train  = correct_image_slice(skip, zeros, train_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config)
+                    avg_ssim_recon += ssim_recon
+                    avg_ssim_train += ssim_train
                     break
 
                 if (iterations + 1) == max_iter:
-                    previous_projection = correct_image_slice(skip, zeros, train_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config)
+                    previous_projection, ssim_recon, ssim_train  = correct_image_slice(skip, zeros, train_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config)
+                    avg_ssim_recon += ssim_recon
+                    avg_ssim_train += ssim_train
 
             total_its+=1
 
-        print(f"Nr. of skips: {skips}")
 
+        print(f"Nr. of skips: {skips}")
+       # print(f"avg ssim TRAIN: {avg_ssim_train /512}, avg ssim RECON: {avg_ssim_recon /512}")
         # Save current model
         model_name = os.path.join(checkpoint_directory, f'temp_model_{opts.id}.pt')
         torch.save({'net': model.state_dict(), \

@@ -19,9 +19,9 @@ import torch # pylint: disable=import-error
 import torch.backends.cudnn as cudnn # pylint: disable=import-error
 import h5py # pylint: disable=import-error
 
-from ct_3d_projector import ConeBeam3DProjector
 
-from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_image
+from ct_3d_projector_ctutils import ConeBeam3DProjector
+from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_image, save_volume
 from data import ImageDataset_3D_hdf5
 from skimage.feature import canny
 from skimage.filters import sobel
@@ -75,15 +75,39 @@ for it, (grid, image) in enumerate(data_loader):
 
     image = image.cuda()    # [1, h, w, d, 1], value range = [0, 1]
 
-    ct_projector_sparse_view = ConeBeam3DProjector(config['fbp_img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+    #ct_projector_sparse_view = ConeBeam3DProjector(config['cb_para_fbp'])
 
-    projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
-    fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
+    #projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
+    #fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
 
-    fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
+    #fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
 
+    # image_original_ctutil = image.squeeze().cuda().cpu().detach().numpy()
+    # save_volume(image_original_ctutil, image_directory, config, "image_create_original_ctutil")
+
+    # fbp_original_ctutil = fbp_recon.squeeze().cuda().cpu().detach().numpy()
+    # save_volume(fbp_original_ctutil, image_directory, config, "fbp_create_original_ctutil")
+
+    # projections_original_ctutil = projections.squeeze().cuda().cpu().detach().numpy()
+    # save_volume(projections_original_ctutil, image_directory, config, "projections_create_original_ctutil")
+
+
+    # projections2 = ct_projector_sparse_view.forward_project(fbp_recon.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
+    # fbp_recon2 = ct_projector_sparse_view.backward_project(projections2)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
+
+    # fbp_recon2 = fbp_recon2.unsqueeze(1).transpose(1, 4)
+
+    # fbp_original_ctutil2 = fbp_recon2.squeeze().cuda().cpu().detach().numpy()
+    # save_volume(fbp_original_ctutil2, image_directory, config, "fbp_create_original_ctutil2")
+
+    # projections_original_ctutil2 = projections2.squeeze().cuda().cpu().detach().numpy()
+    # save_volume(projections_original_ctutil2, image_directory, config, "projections_create_original_ctutil2")
+
+# save corrected slices in new hdf5 Volume
 fbp_volume_path = os.path.join(image_directory, f"../{config['data'][:-3]}_fbp_with_{config['num_proj_sparse_view']}_projections.hdf5")
 print(f"saved to {config['data'][:-3]}_fbp_with_{config['num_proj_sparse_view']}_projections.hdf5")
 
-fbp_volume = fbp_recon.squeeze().cuda()
-torch.save(fbp_volume, os.path.join(image_directory, f"fbp_volume.pt"))
+#fbp_volume = canny_volume
+#fbp_volume = fbp_recon.squeeze().cuda()
+#torch.save(fbp_volume, os.path.join(image_directory, f"fbp_volume.pt"))
+torch.save(image.squeeze().cuda(), os.path.join(image_directory, f"fbp_volume.pt"))

@@ -1,4 +1,3 @@
-
 '''
 adapted from
 https://arxiv.org/pdf/2108.10991
@@ -14,10 +13,8 @@ import shutil
 import gc
 import time
 import warnings
-import wandb
-import numpy as np
-import h5py # pylint: disable=import-error
-from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_image, save_image_2d, save_volume
+
+from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_volume
 
 from networks import Positional_Encoder_3D, FFN_3D
 from ct_3d_projector import ConeBeam3DProjector
@@ -71,71 +68,21 @@ print('Load volume: {}'.format(config['img_path']))
 dataset = ImageDataset_3D_hdf5(config['img_path'], config['dataset_size'])
 data_loader = get_data_loader_hdf5(dataset, batch_size=config['batch_size'])
 
-
-# wandb.init(
-#     #set the wandb project where this run will be logged
-#     project="ct-image-reconstruction",
-
-#     # track hyperparameters and run metadata
-#     config={
-#     "learning_rate": config['lr'],
-#     "architecture": config['model'],
-#     "dataset": config['data'],
-#     "epochs": config['max_iter'],
-#     "fourier feature standard deviation" : config['encoder']['scale'],
-#     "img size" : config['img_size'],
-#     "batch size" : config['batch_size'],
-#     }
-# )
 for it, (grid, image) in enumerate(data_loader):
 
     # Input coordinates (h,w) grid and target image
     grid = grid.cuda()      # [1, h, w, d, 3], value range = [0, 1]
     image = image.cuda()    # [1, h, w, d, 1], value range = [0, 1]
-    grid = grid[:,int(int(opts.id) * 128):int(((int(opts.id) + 1) * 128)),:,:]
-    print(f"id 0 {int(int(opts.id) * 128)} id 1 {int(((int(opts.id) + 1) * 128))}")
+
     print(grid.shape, image.shape)
 
+    ct_projector_sparse_view = ConeBeam3DProjector(config['img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
 
-    '''
-    with available data
-    '''
-    image = torch.load(os.path.join(image_directory, f"fbp_volume.pt"))[int(int(opts.id) * 128):int(((int(opts.id) + 1) * 128)),:,:].cuda() # [128, 512, 512]
+    projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
+
     image = torch.tensor(image, dtype=torch.float16)[None, ...]  # [B, C, H, W]
     image = F.interpolate(image, size=(config['dataset_size'][1], config['dataset_size'][2]), mode='bilinear', align_corners=False)
     image = image.unsqueeze(4)
-
-    #ct_projector_full_view = ConeBeam3DProjector(config['img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_full_view'])
-    ct_projector_sparse_view = ConeBeam3DProjector(config['img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
-
-    #projectors = [ct_projector_full_view, ct_projector_sparse_view]
-
-    projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
-    fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
-
-    fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                       # [1, h, w, 1]
-
-    # projections2 = ct_projector_sparse_view.forward_project(fbp_recon.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
-    # fbp_recon2 = ct_projector_sparse_view.backward_project(projections2)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
-
-    # fbp_recon2 = fbp_recon2.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
-
-# if int(opts.id) == 0:
-#     print("here")
-#     fbp_original_ctutil = image.squeeze().cuda().cpu().detach().numpy()
-#     save_volume(fbp_original_ctutil, image_directory, config, "fbp_original_ctutil")
-
-#     projections_ctutil = projections.squeeze().cuda().cpu().detach().numpy()
-#     save_volume(projections_ctutil, image_directory, config, "projections_ctutil")
-
-#     fbp_recon_ctutil = fbp_recon.squeeze().cuda().cpu().detach().numpy()
-#     save_volume(fbp_recon_ctutil, image_directory, config, "fbp_recon_ctutil")
-
-#     projections_ctutil2 = projections2.squeeze().cuda().cpu().detach().numpy()
-#     save_volume(projections_ctutil, image_directory, config, "projections_ctutil2")
-
-#     fbp_recon_ctutil2 = fbp_recon2.squeeze().cuda().cpu().detach().numpy()
-#     save_volume(fbp_recon_ctutil2, image_directory, config, "fbp_recon_ctutil2")
 
     # Setup input encoder:
     encoder = Positional_Encoder_3D(config['encoder'])
@@ -159,9 +106,6 @@ for it, (grid, image) in enumerate(data_loader):
         optim.zero_grad()
         with torch.cuda.amp.autocast():
             train_output = model(train_embedding)  # train model on grid: ([1, x, y, embedding_size]) > [1, x, y, 1]
-            # if iterations == max_iter - 1:
-            #     model_train = train_output.squeeze().cuda().cpu().detach().numpy()
-            #     save_volume(model_train, image_directory, config, "model_train")
 
             train_projections = ct_projector_sparse_view.forward_project(train_output.transpose(1, 4).squeeze(1)).to("cuda")      # evaluate by forward projecting
             train_loss = (0.5 * loss_fn(train_projections.to("cuda"), projections.to("cuda")))                                    # compare forward projected grid with sparse view projection
@@ -175,13 +119,47 @@ for it, (grid, image) in enumerate(data_loader):
             model.eval()
             with torch.no_grad():
                 fbp_prior = ct_projector_sparse_view.backward_project(train_projections).unsqueeze(1).transpose(1, 4)
-                test_ssim = compare_ssim(fbp_prior.transpose(1,4).squeeze().cpu().numpy(), fbp_recon.transpose(1,4).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+                test_ssim = compare_ssim(fbp_prior.transpose(1,4).squeeze().cpu().numpy(), image.transpose(1,4).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
 
-                #wandb.log({"ssim": test_ssim, "loss": train_loss})
             end = time.time()
 
             print("[Slice Nr. {} Iteration: {}/{}] | FBP SSIM: {:.4g} | Time Elapsed: {}".format(it + 1, iterations + 1, max_iter, test_ssim, (end - start) / 60))
 
 
             if (iterations + 1) == max_iter:
-                torch.save(train_output, os.path.join(image_directory, f"prior_volume_{opts.id}.pt"))
+                prior_volume = train_output
+
+prior_volume = prior_volume.squeeze()
+prior_volume = torch.tensor(prior_volume, dtype=torch.float32)[None, ...]
+prior_volume = F.interpolate(torch.tensor(prior_volume, dtype=torch.float16), size=(512, 512), mode='bilinear', align_corners=False)
+prior_volume = prior_volume.unsqueeze(0)
+prior_volume = prior_volume.transpose(1, 4).squeeze(1)
+print(f"prior_volume.shape {prior_volume.shape}")
+
+
+ct_projector_full_view = ConeBeam3DProjector(config['fbp_img_size'], proj_size=config['proj_size'], num_proj=512)
+ct_projector_sparse_view = ConeBeam3DProjector(config['fbp_img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+
+
+
+projs_prior_full_view = ct_projector_full_view.forward_project(prior_volume.transpose(1, 4).squeeze(1))
+fbp_prior_full_view = ct_projector_full_view.backward_project(projs_prior_full_view)
+fbp_prior_full_view = fbp_prior_full_view.unsqueeze(1).transpose(1, 4)
+
+projs_prior_sparse_view = ct_projector_sparse_view.forward_project(prior_volume.transpose(1, 4).squeeze(1))
+fbp_prior_sparse_view = ct_projector_sparse_view.backward_project(projs_prior_sparse_view)
+fbp_prior_sparse_view = fbp_prior_sparse_view.unsqueeze(1).transpose(1, 4)
+
+streak_volume = (fbp_prior_sparse_view - fbp_prior_full_view)#.unsqueeze(1).transpose(1, 4)
+print(f"streak volume.shape {streak_volume.shape}")
+fbp_volume = torch.tensor(image, dtype=torch.float16)[None, ...]
+fbp_volume = F.interpolate(torch.tensor(fbp_volume, dtype=torch.float16), size=(512, 512), mode='bilinear', align_corners=False)
+print(f"fbp volume.shape {fbp_volume.shape}")
+corrected_volume = (fbp_volume.unsqueeze(4) - streak_volume).squeeze().cpu().detach().numpy()
+
+# fbp_prior_full_view = fbp_prior_full_view.squeeze().cpu().detach().numpy()
+# fbp_volume = fbp_volume.squeeze().cpu().detach().numpy()
+# prior_volume = prior_volume.squeeze().cuda().cpu().detach().numpy()
+# streak_volume = streak_volume.squeeze().cuda().cpu().detach().numpy()
+
+save_volume(corrected_volume, image_directory, config, "corrected_volume")

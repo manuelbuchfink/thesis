@@ -64,48 +64,13 @@ class Initialization_ConeBeam_modi:
         print(cb_para['pixelSize'],cb_para['detector_width'] ,self.param['sh'])
         print(cb_para['voxelSize'],self.param['nz'],self.param['sz'])
 
-# class Initialization_ConeBeam:
-#     def __init__(self, image_size, num_proj, start_angle, proj_size, raw_reso=0.7):
-#         '''
-#         image_size: [z, x, y], assume x = y for each slice image
-#         proj_size: [h, w]
-#         '''
-#         self.param = {}
-
-#         self.image_size = image_size
-#         self.num_proj = num_proj
-#         self.proj_size = proj_size
-#         self.raw_reso = raw_reso
-
-#         self.reso = 512. / image_size[1] * raw_reso  # voxelsize
-
-#         ## Imaging object (reconstruction objective) with object center as origin
-#         self.param['nx'] = image_size[1]   # number of voxels
-#         self.param['ny'] = image_size[2]
-#         self.param['nz'] = image_size[0]
-#         self.param['sx'] = self.param['nx']*self.reso  # volume real size
-#         self.param['sy'] = self.param['ny']*self.reso
-#         self.param['sz'] = self.param['nz']*self.reso
-
-#         ## Projection view angles (ray directions)
-#         self.param['start_angle'] = start_angle
-#         self.param['end_angle'] = start_angle + np.pi
-#         self.param['nProj'] = num_proj
-
-#         ## Detector    mag=1500/1000
-#         self.param['sh'] = self.param['sx']*(1500/1000)    #size of projection height
-#         self.param['sw'] = np.sqrt(self.param['sx']**2+self.param['sy']**2)*(1500/1000)   # biggest width
-#         self.param['nh'] = proj_size[0] # shape of sinogram is proj_size*proj_size
-#         self.param['nw'] = proj_size[1]
-#         self.param['dde'] = 500*self.reso # distance between origin and detector center (assume in x axis)
-#         self.param['dso'] = 1000*self.reso # distance between origin and source (assume in x axis)
 
 def build_conebeam_gemotry(param):
     # Reconstruction space:
     reco_space = odl.uniform_discr(min_pt=[-param.param['sx'] / 2.0, -param.param['sy'] / 2.0, -param.param['sz'] / 2.0],
                                     max_pt=[param.param['sx'] / 2.0, param.param['sy'] / 2.0, param.param['sz'] / 2.0],
                                     shape=[param.param['nx'], param.param['ny'], param.param['nz']],
-                                    dtype='float32')
+                                    dtype='float16')
 
     angle_partition = odl.uniform_partition(min_pt=param.param['start_angle'],
                                             max_pt=param.param['end_angle'],
@@ -127,7 +92,7 @@ def build_conebeam_gemotry(param):
                                      impl='astra_cuda') # implementation back-end for the transform: ASTRA toolbox, using CUDA, 2D or 3D
 
     FBPOper = odl.tomo.fbp_op(ray_trafo=ray_trafo,
-                             filter_type='Ram-Lak',
+                             #filter_type='Ram-Lak',
                              frequency_scaling=1.0)
 
     # Reconstruction space for imaging object, RayTransform operator, Filtered back-projection operator

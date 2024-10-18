@@ -23,7 +23,7 @@ import torch.nn.functional as F
 from ct_2d_projector import FanBeam2DProjector
 from data import ImageDataset_2D_hdf5
 from networks import Positional_Encoder, FFN
-from utils import get_config, get_sub_folder, get_data_loader_hdf5, reshape_tensor, correct_image_slice, get_image_pads, reshape_model_weights, save_image
+from utils import get_config, get_sub_folder, save_image
 from skimage.metrics import structural_similarity as compare_ssim
 
 import gc
@@ -84,8 +84,8 @@ corrected_images = torch.cat(corrected_images, 0).cpu().detach().numpy()
 corrected_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
 print(f"saved to {config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
 
-#sparse_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_sparse_view_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
-#print(f"saved to {config['data'][:-3]}_sparse_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
+sparse_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_sparse_view_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
+print(f"saved to {config['data'][:-3]}_sparse_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
 
 gridSpacing=[5.742e-05, 5.742e-05, 5.742e-05]
 gridOrigin=[0, 0 ,0]
@@ -112,11 +112,12 @@ with h5py.File(corrected_image_path,'w') as hdf5:
 #     save_image(torch.tensor(slices_sparse[i], dtype=torch.float32), f"./u_im_spare_after_saving/image from saved volume, slice Nr. {i}.png")
 
 
-# image_correct = h5py.File(corrected_image_path, 'r')
-# image_correct = image_correct['Volume']
-# slices_correct = [None] * (512)
-# for i in range(512):
+image_correct = h5py.File(corrected_image_path, 'r')
+image_correct = image_correct['Volume']
+slices_correct = [None] * (512)
+for i in range(512):
 
-#     #split image into N evenly sized chunks
-#     slices_correct[i] = image_correct[i,:,:].squeeze()           # (512,512) = [h, w]
-#     save_image(torch.tensor(slices_correct[i], dtype=torch.float32), f"./u_im_correct_after_saving/image from saved volume, slice Nr. {i}.png")
+    #split image into N evenly sized chunks
+    slices_correct[i] = image_correct[i,:,:].squeeze()           # (512,512) = [h, w]
+    save_image(torch.tensor(slices_correct[i], dtype=torch.float32), f"./u_im_correct_after_saving/image from saved volume, slice Nr. {i}.png")
+

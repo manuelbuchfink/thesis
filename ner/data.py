@@ -6,7 +6,7 @@ import h5py
 from utils import get_config
 import torch.nn.functional as F
 from skimage.feature import canny
-from skimage.filters import sobel
+
 from ct_2d_projector import FanBeam2DProjector
 
 def display_tensor_stats(tensor):
@@ -26,7 +26,7 @@ def create_grid_3d(c, h, w):
                                             torch.linspace(0, 1, steps=h), \
                                             torch.linspace(0, 1, steps=w)])
     grid = torch.stack([grid_z, grid_y, grid_x], dim=-1)
-    return grid
+    return grid#.bfloat16()
 
 def bounding_box_2D(img):   # function to compute minimal bounding box for one slice
     rows = np.any(img, axis=1)
@@ -190,29 +190,23 @@ class ImageDataset_3D_hdf5(Dataset):
         center_idx = int(image.shape[0] / 2)
         num_slice = int(self.img_dim[0] / 2)
         image = image[center_idx-num_slice:center_idx+num_slice, :, :]
-        im_size = image.shape
-
-
-        # # Complete 3D input image as a squared x-y image
-        # if not(im_size[1] == im_size[2]):
-        #     zerp_padding = np.zeros([im_size[0], im_size[1], np.int((im_size[1]-im_size[2])/2)])
-        #     image = np.concatenate([zerp_padding, image, zerp_padding], axis=-1)
 
         # Resize image in x-y
-        print(f"pre im shape {image.shape}")
         image = torch.tensor(image, dtype=torch.float32)[None, ...]  # [B, C, H, W]
-        print(f"pre mid shape {image.shape}")
         image = F.interpolate(image, size=(self.img_dim[1], self.img_dim[2]), mode='bilinear', align_corners=False)
-        print(f"pre post shape {image.shape}")
+
         # Scaling normalization
-        image = image / torch.max(image)  # [B, C, H, W], [0, 1]
-        self.img = image.permute(1, 2, 3, 0)  # [C, H, W, 1]
+        image -= image.min(1, keepdim=True)[0]
+        image /= image.max(1, keepdim=True)[0]
+        image = image.nan_to_num(0)                         # [B, C, H, W], [0, 1]
+
+        self.img = image.permute(1, 2, 3, 0)                # [C, H, W, 1]
         display_tensor_stats(self.img)
 
 
     def __getitem__(self, idx):
         grid = create_grid_3d(*self.img_dim)
-        return grid, self.img               # return data tuple
+        return grid, self.img#.bfloat16()               # return data tuple
 
     def __len__(self):
         return 1                            # iterations
@@ -241,11 +235,11 @@ class ImageDataset_3D_hdf5_direct(Dataset):
         #     image = np.concatenate([zerp_padding, image, zerp_padding], axis=-1)
 
         # Resize image in x-y
-        print(f"pre im shape {image.shape}")
-        image = torch.tensor(image, dtype=torch.float32)[None, ...]  # [B, C, H, W]
+        #print(f"pre im shape {image.shape}")
+        image = torch.tensor(image, dtype=torch.float16)[None, ...]  # [B, C, H, W]
         print(f"pre mid shape {image.shape}")
         #image = F.interpolate(image, size=(self.img_dim[1], self.img_dim[2]), mode='bilinear', align_corners=False)
-        print(f"pre post shape {image.shape}")
+        #print(f"pre post shape {image.shape}")
         # Scaling normalization
         image = image / torch.max(image)  # [B, C, H, W], [0, 1]
         self.img = image.permute(1, 2, 3, 0)  # [C, H, W, 1]

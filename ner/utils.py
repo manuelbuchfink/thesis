@@ -1,7 +1,7 @@
 import os
 import yaml
 import numpy as np
-
+import h5py
 import torchvision.utils as vutils
 import torch
 import torch.nn.functional as F
@@ -98,11 +98,35 @@ def reshape_model_weights(image_height, image_width, config, checkpoint_director
 
         return state_dict
 
-global avg_ssim_train
-global avg_ssim_recon
+def save_volume(volume, image_directory, config, name):
 
-avg_ssim_train = 0
-avg_ssim_recon = 0
+
+    # save corrected slices in new hdf5 Volume
+    volume_path = os.path.join(image_directory, f"../{config['data'][:-5]}_{name}_with_{config['num_proj_sparse_view']}_projections.hdf5")
+    print(f"saved to {config['data'][:-5]}_{name}_with_{config['num_proj_sparse_view']}_projections.hdf5")
+
+    gridSpacing=[5.742e-05, 5.742e-05, 5.742e-05]
+    gridOrigin=[0, 0 ,0]
+    if not(os.path.isdir(f"./u_{name}/")):
+        os.mkdir(f"./u_{name}/")
+
+    with h5py.File(volume_path,'w') as hdf5:
+        hdf5.create_dataset("Type", data=[86,111,108,117,109,101], shape=(6,1))
+        hdf5.create_dataset("GridOrigin", data=gridOrigin, shape=(3,1))
+        hdf5.create_dataset("GridSpacing", data=gridSpacing, shape=(3,1))
+        hdf5.create_dataset("Volume", data=np.asarray(volume))
+
+
+    volume = h5py.File(volume_path, 'r')
+    volume = volume['Volume']
+    slices_sparse = [None] * int(volume.shape[0])
+    for i in range(int(volume.shape[0])):
+
+        #split image into N evenly sized chunks
+        slices_sparse[i] = volume[i,:,:].squeeze()           # (512,512) = [h, w]
+        save_image(torch.tensor(slices_sparse[i], dtype=torch.float32), f"./u_{name}/image from saved volume, slice Nr. {i}.png")
+    print(f"image: {name} saved")
+
 def correct_image_slice(skip, zeros, test_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config): # image saving mumbo jumbo
     '''
 
@@ -126,13 +150,9 @@ def correct_image_slice(skip, zeros, test_output, projectors, image, fbp_recon, 
     diff_ssim_recon = compare_ssim(fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
     diff_ssim_train = compare_ssim(corrected_image.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
 
-    global avg_ssim_train
-    global avg_ssim_recon
 
-    avg_ssim_train += diff_ssim_train
-    avg_ssim_recon += diff_ssim_recon
     print(f"Diff SSIM TRAIN = {diff_ssim_train}, Diff SSIM RECON = {diff_ssim_recon}")
-    print(f"avg ssim TRAIN: {avg_ssim_train /(it + 1 - zeros)}, avg ssim RECON: {avg_ssim_recon /(it + 1 - zeros)}")
+    #print(f"avg ssim TRAIN: {avg_ssim_train /(it + 1 - zeros)}, avg ssim RECON: {avg_ssim_recon /(it + 1 - zeros)}")
 
     corrected_image_padded = F.pad(corrected_image, (0,0, pads[2],pads[3], pads[0],pads[1]))
     #save_image_2d(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
@@ -152,5 +172,5 @@ def correct_image_slice(skip, zeros, test_output, projectors, image, fbp_recon, 
     # save_image_2d(prior_padded, os.path.join(image_directory, f"prior_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
     # save_image_2d(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
     # save_image_2d(streak_prior, os.path.join(image_directory, f"streak_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
-    return train_projections
+    return train_projections, diff_ssim_recon, diff_ssim_train
 
