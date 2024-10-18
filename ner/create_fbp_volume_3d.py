@@ -20,12 +20,9 @@ import torch.backends.cudnn as cudnn # pylint: disable=import-error
 import h5py # pylint: disable=import-error
 
 from ct_3d_projector import ConeBeam3DProjector
-
-from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_image
+from utils import get_config, prepare_sub_folder, get_data_loader_hdf5
 from data import ImageDataset_3D_hdf5
-from skimage.feature import canny
-from skimage.filters import sobel
-import matplotlib.pyplot as plt
+
 
 sys.path.append('zhome/buchfiml/miniconda3/envs/odl/lib/python3.11/site-packages')
 sys.path.append(os.getcwd())
@@ -82,6 +79,7 @@ for it, (grid, image) in enumerate(data_loader):
 
     fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
 
+# save corrected slices in new hdf5 Volume
 fbp_volume_path = os.path.join(image_directory, f"../{config['data'][:-3]}_fbp_with_{config['num_proj_sparse_view']}_projections.hdf5")
 print(f"saved to {config['data'][:-3]}_fbp_with_{config['num_proj_sparse_view']}_projections.hdf5")
 

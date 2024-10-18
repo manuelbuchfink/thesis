@@ -171,7 +171,7 @@ class ImageDataset_2D_hdf5_canny(Dataset):
 
 
     def __getitem__(self, idx):
-        return self.grids[idx], self.slices[idx], self.img_dims[idx]               #return data tuple
+        return self.grids[idx].to(torch.float16) , self.slices[idx].to(torch.float16) , self.img_dims[idx].to(torch.float16)               #return data tuple
 
     def __len__(self):
         return len(self.slices) # iterations
@@ -193,12 +193,10 @@ class ImageDataset_3D_hdf5(Dataset):
 
         # Resize image in x-y
         image = torch.tensor(image, dtype=torch.float32)[None, ...]  # [B, C, H, W]
-        image = F.interpolate(image, size=(self.img_dim[1], self.img_dim[2]), mode='bilinear', align_corners=False)
+        #image = F.interpolate(image, size=(self.img_dim[1], self.img_dim[2]), mode='bilinear', align_corners=False)
 
         # Scaling normalization
-        image -= image.min(1, keepdim=True)[0]
-        image /= image.max(1, keepdim=True)[0]
-        image = image.nan_to_num(0)                         # [B, C, H, W], [0, 1]
+        image = image / torch.max(image)  # [B, C, H, W], [0, 1]                    # [B, C, H, W], [0, 1]
 
         self.img = image.permute(1, 2, 3, 0)                # [C, H, W, 1]
         display_tensor_stats(self.img)
@@ -206,49 +204,9 @@ class ImageDataset_3D_hdf5(Dataset):
 
     def __getitem__(self, idx):
         grid = create_grid_3d(*self.img_dim)
-        return grid, self.img#.bfloat16()               # return data tuple
+        return grid, self.img              # return data tuple
 
     def __len__(self):
         return 1                            # iterations
 
 
-class ImageDataset_3D_hdf5_direct(Dataset):
-    def __init__(self, img_path, img_dim):
-        self.img_dim = (img_dim, img_dim, img_dim) if type(img_dim) == int else tuple(img_dim)
-
-        #read hdf5 image
-        image = h5py.File(img_path, 'r')           # list(image.keys()) = ['Tiles'], ['Volume']
-        image = image['Volume']                    # (512,512,512) = [depth, height, width]
-
-        print(f"vol shape {image}")
-
-        # Crop slices in z dim
-        center_idx = int(image.shape[0] / 2)
-        num_slice = int(self.img_dim[0] / 2)
-        image = image[center_idx-num_slice:center_idx+num_slice, :, :]
-        im_size = image.shape
-
-
-        # # Complete 3D input image as a squared x-y image
-        # if not(im_size[1] == im_size[2]):
-        #     zerp_padding = np.zeros([im_size[0], im_size[1], np.int((im_size[1]-im_size[2])/2)])
-        #     image = np.concatenate([zerp_padding, image, zerp_padding], axis=-1)
-
-        # Resize image in x-y
-        #print(f"pre im shape {image.shape}")
-        image = torch.tensor(image, dtype=torch.float16)[None, ...]  # [B, C, H, W]
-        print(f"pre mid shape {image.shape}")
-        #image = F.interpolate(image, size=(self.img_dim[1], self.img_dim[2]), mode='bilinear', align_corners=False)
-        #print(f"pre post shape {image.shape}")
-        # Scaling normalization
-        image = image / torch.max(image)  # [B, C, H, W], [0, 1]
-        self.img = image.permute(1, 2, 3, 0)  # [C, H, W, 1]
-        display_tensor_stats(self.img)
-
-
-    def __getitem__(self, idx):
-        grid = create_grid_3d(*self.img_dim)
-        return grid, self.img               # return data tuple
-
-    def __len__(self):
-        return 1                            # iterations

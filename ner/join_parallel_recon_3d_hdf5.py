@@ -1,4 +1,3 @@
-
 '''
 adapted from
 https://arxiv.org/pdf/2108.10991
@@ -69,15 +68,15 @@ for i in range(4):
 
     prior_volume = torch.load(os.path.join(image_directory, f'prior_volume_{i}.pt'))
     prior_volume = prior_volume.squeeze()
-    prior_volume = torch.tensor(prior_volume, dtype=torch.float16)[None, ...]
-    prior_volume = F.interpolate(torch.tensor(prior_volume, dtype=torch.float16), size=(512, 512), mode='bilinear', align_corners=False)
+    prior_volume = torch.tensor(prior_volume, dtype=torch.float32)[None, ...]
+    prior_volume = F.interpolate(torch.tensor(prior_volume, dtype=torch.float32), size=(512, 512), mode='bilinear', align_corners=False)
     priors.append(prior_volume.squeeze(0))
 
 prior_volume  = torch.cat(priors, 0).unsqueeze(0)
 
 fbp_volume = torch.load(os.path.join(image_directory, f'fbp_volume.pt'))
 fbp_volume = fbp_volume.squeeze()
-fbp_volume = torch.tensor(fbp_volume, dtype=torch.float16)[None, ...]
+fbp_volume = torch.tensor(fbp_volume, dtype=torch.float32)[None, ...]
 
 ct_projector_full_view = ConeBeam3DProjector(config['fbp_img_size'], proj_size=config['proj_size'], num_proj=512)
 ct_projector_sparse_view = ConeBeam3DProjector(config['fbp_img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
@@ -86,13 +85,11 @@ prior_volume = prior_volume.unsqueeze(4)
 
 projs_prior_full_view = ct_projector_full_view.forward_project(prior_volume.transpose(1, 4).squeeze(1))
 fbp_prior_full_view = ct_projector_full_view.backward_project(projs_prior_full_view)
-fbp_prior_full_view = fbp_prior_full_view.unsqueeze(1).transpose(1, 4)
 
 projs_prior_sparse_view = ct_projector_sparse_view.forward_project(prior_volume.transpose(1, 4).squeeze(1))
 fbp_prior_sparse_view = ct_projector_sparse_view.backward_project(projs_prior_sparse_view)
-fbp_prior_sparse_view = fbp_prior_sparse_view.unsqueeze(1).transpose(1, 4)
 
-streak_volume = (fbp_prior_sparse_view - fbp_prior_full_view)#.unsqueeze(1).transpose(1, 4)
+streak_volume = (fbp_prior_sparse_view - fbp_prior_full_view).unsqueeze(1).transpose(1, 4)
 
 corrected_volume = (fbp_volume.unsqueeze(4) - streak_volume).squeeze().cpu().detach().numpy()
 
