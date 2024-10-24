@@ -116,7 +116,7 @@ for it, (grid, image) in enumerate(data_loader):
 
         model.train()
         optim.zero_grad()
-
+        #with torch.cuda.amp.autocast():
         train_output = model(train_embedding)  # train model on grid: ([1, x, y, embedding_size]) > [1, x, y, 1]
 
         train_projections = ct_projector_sparse_view.forward_project(train_output.transpose(1, 4).squeeze(1)).to("cuda")      # evaluate by forward projecting

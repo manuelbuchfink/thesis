@@ -13,27 +13,18 @@ import argparse
 import shutil
 import gc
 import warnings
-import numpy as np
 
 import torch # pylint: disable=import-error
 import torch.backends.cudnn as cudnn # pylint: disable=import-error
-import h5py # pylint: disable=import-error
 
 from ct_3d_projector import ConeBeam3DProjector
 
-from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_image
+from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_volume
 from data import ImageDataset_3D_hdf5
-from skimage.feature import canny
-from skimage.filters import sobel
-import matplotlib.pyplot as plt
 
 sys.path.append('zhome/buchfiml/miniconda3/envs/odl/lib/python3.11/site-packages')
 sys.path.append(os.getcwd())
 warnings.filterwarnings("ignore")
-
-
-
-start = time.time()
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, default='', help='Path to the config file.')
@@ -50,7 +41,7 @@ cudnn.benchmark = True
 
 # Setup output folder
 output_folder = os.path.splitext(os.path.basename(opts.config))[0]
-print(f"output folder{output_folder}")
+print(f"output folder {output_folder}")
 
 output_subfolder = config['data']
 model_name = os.path.join(output_folder, output_subfolder + '/img{}_proj{}_{}_{}_{}_{}_{}_lr{:.2g}_encoder_{}_{}' \
@@ -80,10 +71,6 @@ for it, (grid, image) in enumerate(data_loader):
     projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
     fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
 
-    fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
+    fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4).squeeze().cuda()                         # [1, h, w, 1]
 
-fbp_volume_path = os.path.join(image_directory, f"../{config['data'][:-5]}_fbp_with_{config['num_proj_sparse_view']}_projections.hdf5")
-print(f"saved to {config['data'][:-5]}_fbp_with_{config['num_proj_sparse_view']}_projections.hdf5")
-
-fbp_volume = image.squeeze().cuda()
-torch.save(fbp_volume, os.path.join(image_directory, f"fbp_volume.pt"))
+torch.save(fbp_recon, os.path.join(image_directory, f"fbp_volume.pt"))

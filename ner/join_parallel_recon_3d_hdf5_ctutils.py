@@ -14,8 +14,6 @@ import shutil
 import gc
 import time
 import warnings
-import numpy as np
-import h5py # pylint: disable=import-error
 
 from utils import get_config, get_sub_folder, save_volume
 
@@ -23,6 +21,9 @@ from ct_3d_projector_ctutils import ConeBeam3DProjector
 import torch # pylint: disable=import-error
 import torch.backends.cudnn as cudnn # pylint: disable=import-error
 import torch.nn.functional as F # pylint: disable=import-error
+
+from skimage.metrics import structural_similarity as compare_ssim # pylint: disable=import-error
+from skimage.metrics import mean_squared_error # pylint: disable=import-error
 
 sys.path.append('zhome/buchfiml/miniconda3/envs/odl/lib/python3.11/site-packages')
 sys.path.append(os.getcwd())
@@ -64,21 +65,11 @@ LOAD IMAGE SLICES INTO CORRECTED_IMAGES AND SPARSE_IMAGES FROM FILE
 
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-# priors = []
-# for i in range(4):
-
-#     prior_volume = torch.load(os.path.join(image_directory, f'prior_volume_{i}.pt'))
-#     prior_volume = prior_volume.squeeze()
-#     prior_volume = torch.tensor(prior_volume, dtype=torch.float32)[None, ...]
-#     prior_volume = F.interpolate(torch.tensor(prior_volume, dtype=torch.float16), size=(512, 512), mode='bilinear', align_corners=False)
-#     priors.append(prior_volume.squeeze(0))
-
-# prior_volume  = torch.cat(priors, 0).unsqueeze(0)
 prior_volume = torch.load(os.path.join(image_directory, f'prior_volume_{0}.pt'))
 prior_volume = prior_volume.squeeze()
-prior_volume = torch.tensor(prior_volume, dtype=torch.float32)[None, ...]
-prior_volume = F.interpolate(torch.tensor(prior_volume, dtype=torch.float16), size=(512, 512), mode='bilinear', align_corners=False)
-prior_volume = prior_volume.unsqueeze(0)
+prior_volume = torch.tensor(prior_volume, dtype=torch.float16)[None, ...].unsqueeze(0)
+#prior_volume = F.interpolate(torch.tensor(prior_volume, dtype=torch.float32), size=(512, 512), mode='bilinear', align_corners=False)
+prior_volume = F.interpolate(torch.tensor(prior_volume, dtype=torch.float16), size=(512, 512, 512), mode='nearest')
 
 fbp_volume = torch.load(os.path.join(image_directory, f'fbp_volume.pt'))
 fbp_volume = fbp_volume.squeeze()
@@ -87,8 +78,7 @@ fbp_volume = torch.tensor(fbp_volume, dtype=torch.float16)[None, ...]
 ct_projector_full_view = ConeBeam3DProjector(config['cb_para_full_fbp'])
 ct_projector_sparse_view = ConeBeam3DProjector(config['cb_para_fbp'])
 
-prior_volume = prior_volume.transpose(1, 4).squeeze(1)
-print(prior_volume.shape)
+prior_volume = prior_volume.squeeze(0).unsqueeze(4)
 
 projs_prior_full_view = ct_projector_full_view.forward_project(prior_volume.transpose(1, 4).squeeze(1))
 fbp_prior_full_view = ct_projector_full_view.backward_project(projs_prior_full_view)
@@ -98,115 +88,28 @@ projs_prior_sparse_view = ct_projector_sparse_view.forward_project(prior_volume.
 fbp_prior_sparse_view = ct_projector_sparse_view.backward_project(projs_prior_sparse_view)
 fbp_prior_sparse_view = fbp_prior_sparse_view.unsqueeze(1).transpose(1, 4)
 
-streak_volume = (fbp_prior_sparse_view - fbp_prior_full_view)#.unsqueeze(1).transpose(1, 4)
+streak_volume = (fbp_prior_sparse_view - fbp_prior_full_view)
 
-corrected_volume = (fbp_volume.unsqueeze(4) - streak_volume).squeeze().cpu().detach().numpy()
+corrected_volume = (fbp_volume.unsqueeze(4) - streak_volume)
+image_volume = torch.load(os.path.join(image_directory, f'image_volume.pt'))
+
 
 fbp_prior_full_view = fbp_prior_full_view.squeeze().cpu().detach().numpy()
 fbp_volume = fbp_volume.squeeze().cpu().detach().numpy()
 prior_volume = prior_volume.squeeze().cuda().cpu().detach().numpy()
 streak_volume = streak_volume.squeeze().cuda().cpu().detach().numpy()
+corrected_volume = corrected_volume.squeeze().cpu().detach().numpy()
+image_volume = image_volume.squeeze().cpu().detach().numpy()
 
-save_volume(fbp_prior_full_view, image_directory, config, "fbp_prior_full_view")
+mse = mean_squared_error(image_volume, corrected_volume)
+test_ssim = compare_ssim(image_volume, corrected_volume, axis=-1, data_range=1.0)
+print(f"FINAL SSIM: {test_ssim}, MSE: {mse}")
+
+
+
 save_volume(fbp_volume, image_directory, config, "fbp_volume")
-save_volume(corrected_volume, image_directory, config, "corrected_volume")
 save_volume(prior_volume, image_directory, config, "prior_volume")
-save_volume(streak_volume, image_directory, config, "streak_volume")
-
-
-# # save corrected slices in new hdf5 Volume
-# corrected_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections.hdf5")
-# print(f"saved to {config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections.hdf5")
-
-
-# gridSpacing=[5.742e-05, 5.742e-05, 5.742e-05]
-# gridOrigin=[0, 0 ,0]
-# with h5py.File(corrected_image_path,'w') as hdf5:
-#     hdf5.create_dataset("Type", data=[86,111,108,117,109,101], shape=(6,1))
-#     hdf5.create_dataset("GridOrigin", data=gridOrigin, shape=(3,1))
-#     hdf5.create_dataset("GridSpacing", data=gridSpacing, shape=(3,1))
-#     hdf5.create_dataset("Volume", data=np.asarray(corrected_volume))
-
-
-
-# '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-
-# SAVE CORRECTED VOLUME IMAGES TO FILE
-
-
-# '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-# corrected_volume = h5py.File(corrected_image_path, 'r')
-# corrected_volume = corrected_volume['Volume']
-# slices_sparse = [None] * int(config['fbp_img_size'][0])
-# print(f"volume depth {int(config['fbp_img_size'][0])}")
-# for i in range(int(config['fbp_img_size'][0])):
-
-#     #split image into N evenly sized chunks
-#     slices_sparse[i] = corrected_volume[i,:,:].squeeze()           # (512,512) = [h, w]
-#     save_image(torch.tensor(slices_sparse[i], dtype=torch.float32), f"./u_volume_corrected_after_saving/image from saved volume, slice Nr. {i}.png")
-
-
-# '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-
-# SAVE PRIOR VOLUME IMAGES TO FILE
-
-
-# '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-# # save PRIOR slices in new hdf5 Volume
-# prior_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_prior_with_{config['num_proj_sparse_view']}_projections.hdf5")
-# print(f"saved to {config['data'][:-3]}_prior_with_{config['num_proj_sparse_view']}_projections.hdf5")
-
-# prior_volume = prior_volume.squeeze().cuda().cpu().detach().numpy()
-
-# gridSpacing=[5.742e-05, 5.742e-05, 5.742e-05]
-# gridOrigin=[0, 0 ,0]
-# with h5py.File(prior_image_path,'w') as hdf5:
-#     hdf5.create_dataset("Type", data=[86,111,108,117,109,101], shape=(6,1))
-#     hdf5.create_dataset("GridOrigin", data=gridOrigin, shape=(3,1))
-#     hdf5.create_dataset("GridSpacing", data=gridSpacing, shape=(3,1))
-#     hdf5.create_dataset("Volume", data=np.asarray(prior_volume))
-
-
-
-# prior_volume = h5py.File(prior_image_path, 'r')
-# prior_volume = prior_volume['Volume']
-# slices_sparse = [None] * int(config['fbp_img_size'][0])
-# print(f"volume depth {int(config['fbp_img_size'][0])}")
-# for i in range(int(config['fbp_img_size'][0])):
-
-#     #split image into N evenly sized chunks
-#     slices_sparse[i] = prior_volume[i,:,:].squeeze()           # (512,512) = [h, w]
-#     save_image(torch.tensor(slices_sparse[i], dtype=torch.float32), f"./u_prior_after_saving/image from saved volume, slice Nr. {i}.png")
-
-
-# '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-
-# SAVE FBP PRIOR VOLUME IMAGES TO FILE
-
-
-# '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-# # save PRIOR slices in new hdf5 Volume
-# fbp_prior_image_path = os.path.join(image_directory, f"../{config['data'][:-3]}_fbp_prior_with_{config['num_proj_sparse_view']}_projections.hdf5")
-# print(f"saved to {config['data'][:-3]}_fbp_prior_with_{config['num_proj_sparse_view']}_projections.hdf5")
-
-# fbp_prior_volume = streak_volume.squeeze().cuda().cpu().detach().numpy()
-
-# gridSpacing=[5.742e-05, 5.742e-05, 5.742e-05]
-# gridOrigin=[0, 0 ,0]
-# with h5py.File(fbp_prior_image_path,'w') as hdf5:
-#     hdf5.create_dataset("Type", data=[86,111,108,117,109,101], shape=(6,1))
-#     hdf5.create_dataset("GridOrigin", data=gridOrigin, shape=(3,1))
-#     hdf5.create_dataset("GridSpacing", data=gridSpacing, shape=(3,1))
-#     hdf5.create_dataset("Volume", data=np.asarray(fbp_prior_volume))
-
-
-
-# fbp_prior_volume = h5py.File(fbp_prior_image_path, 'r')
-# fbp_prior_volume = fbp_prior_volume['Volume']
-# slices_sparse = [None] * int(config['fbp_img_size'][0])
-# print(f"volume depth {int(config['fbp_img_size'][0])}")
-# for i in range(int(config['fbp_img_size'][0])):
-
-#     #split image into N evenly sized chunks
-#     slices_sparse[i] = fbp_prior_volume[i,:,:].squeeze()           # (512,512) = [h, w]
-#     save_image(torch.tensor(slices_sparse[i], dtype=torch.float32), f"./u_fbp_prior_after_saving/image from saved volume, slice Nr. {i}.png")
+#save_volume(streak_volume, image_directory, config, "streak_volume")
+#save_volume(fbp_prior_full_view, image_directory, config, "fbp_prior_full_view")
+save_volume(corrected_volume, image_directory, config, "corrected_volume")
+#save_volume(image_volume.squeeze().cpu().detach().numpy(), image_directory, config, "image_volume")

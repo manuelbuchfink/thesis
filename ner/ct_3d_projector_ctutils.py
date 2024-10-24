@@ -6,7 +6,7 @@ import odl
 from odl.contrib import torch as odl_torch
 
 class Initialization_ConeBeam_modi:
-    def __init__(self, cb_para):
+    def __init__(self, image_size, cb_para):
         '''
         image_size: [z, x, y], assume x = y for each slice image
         proj_size: [h, w]
@@ -32,12 +32,13 @@ class Initialization_ConeBeam_modi:
 
 
         self.param = {}
+        self.image_size = image_size
         self.param['voxelSize'] = cb_para['voxelSize']
 
         ## Imaging object (reconstruction objective) with object center as origin
-        self.param['nx'] = cb_para['Volumen_num_xz']   # number of voxels
-        self.param['ny'] = cb_para['Volumen_num_xz']
-        self.param['nz'] = cb_para['Volumen_num_y'] # 1 != 128
+        self.param['nx'] = self.image_size[1]   #Volumen_num_xz
+        self.param['ny'] = self.image_size[2]   #Volumen_num_xz
+        self.param['nz'] = self.image_size[0]   #Volumen_num_y
         self.param['sx'] = self.param['nx'] * cb_para['voxelSize'] # volume real size
         self.param['sy'] = self.param['ny'] * cb_para['voxelSize'] # 32.768
         self.param['sz'] = self.param['nz'] * cb_para['voxelSize']
@@ -48,21 +49,21 @@ class Initialization_ConeBeam_modi:
         self.param['nProj'] = cb_para['num_projs']
 
         ## Detector
-        # self.param['nh'] = cb_para['detector_height']
-        # self.param['nw'] = cb_para['detector_width']
+        self.param['nh'] = 512 #cb_para['detector_height']
+        self.param['nw'] = 512 #cb_para['detector_width']
 
         # magnification m = SDD / SOD = 1281.909 / 646.0335 = 1.98427635719
         # pixel size = voxel size * magnifiactaion = 0.064 * 1.98427635719 = 0.12699368686
 
-        self.param['nh'] =cb_para['detector_width']   # wrong code defination from nerp
-        self.param['nw'] = cb_para['detector_height']
+        # self.param['nh'] =cb_para['detector_width']   # wrong code defination from nerp
+        # self.param['nw'] = cb_para['detector_height']
         self.param['sh'] = self.param['nh'] * cb_para['pixelSize']    #size of projection height 65
         self.param['sw'] = self.param['nw'] * cb_para['pixelSize']    # biggest width 65
         self.param['dde'] = cb_para['SDD'] - cb_para['SOD'] # distance between origin and detector center (assume in x axis)
         self.param['dso'] = cb_para['SOD'] # distance between origin and source (assume in x axis)
 
-        print(cb_para['pixelSize'],cb_para['detector_width'] ,self.param['sh'])
-        print(cb_para['voxelSize'],self.param['nz'],self.param['sz'])
+        #print(cb_para['pixelSize'],cb_para['detector_width'] ,self.param['sh'])
+        #print(cb_para['voxelSize'],self.param['nz'],self.param['sz'])
 
 
 def build_conebeam_gemotry(param):
@@ -92,7 +93,7 @@ def build_conebeam_gemotry(param):
                                      impl='astra_cuda') # implementation back-end for the transform: ASTRA toolbox, using CUDA, 2D or 3D
 
     FBPOper = odl.tomo.fbp_op(ray_trafo=ray_trafo,
-                             #filter_type='Ram-Lak',
+                             filter_type='Ram-Lak',
                              frequency_scaling=1.0)
 
     # Reconstruction space for imaging object, RayTransform operator, Filtered back-projection operator
@@ -160,8 +161,9 @@ class ConeBeam3DProjector():
         #                                     start_angle=self.start_angle,
         #                                     proj_size=self.proj_size,
         #                                     raw_reso=self.raw_reso)
-    def __init__(self, cb_para):
-        geo_param = Initialization_ConeBeam_modi(cb_para)
+    def __init__(self, image_size, cb_para):
+        geo_param = Initialization_ConeBeam_modi(image_size=image_size,
+                                                 cb_para=cb_para)
 
         # Forward projection function
         self.forward_projector = Projection_ConeBeam(geo_param)

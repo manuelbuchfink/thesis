@@ -14,15 +14,15 @@ import gc
 import time
 import warnings
 
+from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_volume, save_image_2d
+
 from networks import Positional_Encoder_3D, FFN_3D
 from ct_3d_projector import ConeBeam3DProjector
-from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_volume, save_image_2d
-from data import ImageDataset_3D_hdf5
 
 import torch # pylint: disable=import-error
 import torch.backends.cudnn as cudnn # pylint: disable=import-error
 import torch.nn.functional as F # pylint: disable=import-error
-
+import tensorboardX # pylint: disable=import-error
 from skimage.metrics import structural_similarity as compare_ssim # pylint: disable=import-error
 from skimage.metrics import mean_squared_error  as mse # pylint: disable=import-error
 from skimage.metrics import peak_signal_noise_ratio as psnr
@@ -30,6 +30,8 @@ from skimage.metrics import peak_signal_noise_ratio as psnr
 warnings.filterwarnings("ignore")
 sys.path.append('zhome/buchfiml/miniconda3/envs/odl/lib/python3.11/site-packages')
 sys.path.append(os.getcwd())
+from data import ImageDataset_3D_hdf5
+
 start = time.time()
 
 parser = argparse.ArgumentParser()
@@ -81,6 +83,8 @@ for it, (grid, image) in enumerate(data_loader):
     fbp_recon = fbp_recon.unsqueeze(0).unsqueeze(4)  # [1, 128, 128, 128, 1] nproj=128
 
     ct_projector_sparse_view = ConeBeam3DProjector(fbp_recon.squeeze().shape, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+
+
     projections = ct_projector_sparse_view.forward_project(fbp_recon.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
 
     # Setup input encoder:
@@ -105,9 +109,10 @@ for it, (grid, image) in enumerate(data_loader):
 
         with torch.cuda.amp.autocast(dtype=torch.float16):
             train_output = model(train_embedding)                                           # train model on grid: ([1, x, y, embedding_size]) > [1, x, y, 1]
-            train_loss = (0.5 * loss_fn(train_output.to("cuda"), fbp_recon.to("cuda")))     # compare forward projected grid with sparse view projection
+            train_projections = ct_projector_sparse_view.forward_project(train_output.transpose(1, 4).squeeze(1)).to("cuda")      # evaluate by forward projecting
+            train_loss = (0.5 * loss_fn(train_projections.to("cuda"), projections.to("cuda")))     # compare forward projected grid with sparse view projection
 
-        train_projections = ct_projector_sparse_view.forward_project(train_output.transpose(1, 4).squeeze(1)).to("cuda")      # evaluate by forward projecting
+
 
         scaler.scale(train_loss).backward()
         scaler.step(optim)
