@@ -136,14 +136,13 @@ for it, (grid, image) in enumerate(data_loader):
     prior_volume = train_output.squeeze()
     prior_volume = torch.tensor(prior_volume, dtype=torch.float16)[None, ...].unsqueeze(0)
     prior_volume = F.interpolate(torch.tensor(prior_volume, dtype=torch.float16), size=(512, 512, 512), mode='nearest') #up-sample by repeating values based on nearest neighbors
+    prior_volume = prior_volume.squeeze(0).unsqueeze(4)
 
     fbp_volume = fbp_volume.squeeze()
     fbp_volume = torch.tensor(fbp_volume, dtype=torch.float16)[None, ...]
 
     ct_projector_full_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, proj_size=config['proj_size'], num_proj=512)
     ct_projector_sparse_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
-
-    prior_volume = prior_volume.squeeze(0).unsqueeze(4)
 
     projs_prior_full_view = ct_projector_full_view.forward_project(prior_volume.transpose(1, 4).squeeze(1))
     fbp_prior_full_view = ct_projector_full_view.backward_project(projs_prior_full_view)
