@@ -113,7 +113,6 @@ for it, (grid, image) in enumerate(data_loader):
         scaler.update()
 
         if (iterations + 1) % config['val_iter'] == 0: # compute metrics
-            save_image_2d(train_output[:,87,:,:,:].float(), os.path.join(image_directory, f"test_slice_{iterations + 1}.png"))
             model.eval()
             with torch.no_grad():
                 fbp_prior = ct_projector_sparse_view.backward_project(train_projections).unsqueeze(1).transpose(1, 4)
