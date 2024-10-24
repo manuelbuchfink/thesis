@@ -16,7 +16,7 @@ import warnings
 
 from networks import Positional_Encoder_3D, FFN_3D
 from ct_3d_projector import ConeBeam3DProjector
-from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_volume, save_image_2d
+from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_volume
 from data import ImageDataset_3D_hdf5
 
 import torch # pylint: disable=import-error
@@ -27,15 +27,15 @@ from skimage.metrics import structural_similarity as compare_ssim # pylint: disa
 from skimage.metrics import mean_squared_error  as mse # pylint: disable=import-error
 from skimage.metrics import peak_signal_noise_ratio as psnr
 
-warnings.filterwarnings("ignore")
 sys.path.append('zhome/buchfiml/miniconda3/envs/odl/lib/python3.11/site-packages')
 sys.path.append(os.getcwd())
+warnings.filterwarnings("ignore")
 start = time.time()
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, default='', help='Path to the config file.')
 parser.add_argument('--output_path', type=str, default='.', help="outputs path")
-parser.add_argument('--id', type=str, default='.', help="id slice")
+
 # Load experiment setting
 opts = parser.parse_args()
 config = get_config(opts.config)
@@ -57,8 +57,7 @@ data_loader = get_data_loader_hdf5(dataset, batch_size=config['batch_size'])
 for it, (grid, image) in enumerate(data_loader):
 
     n = config['down_sample_factor']
-
-    image = image.cuda()    # [1, h, w, d, 1], value range = [0, 1]
+    image = image.cuda()                                        # [1, h, w, d, 1], value range = [0, 1]
     grid = grid.squeeze()[::n,::n,::n].unsqueeze(0).cuda()      # [1, h, w, d, 3], value range = [0, 1]
 
     output_subfolder = config['data']
