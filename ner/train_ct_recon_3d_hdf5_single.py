@@ -57,8 +57,8 @@ data_loader = get_data_loader_hdf5(dataset, batch_size=config['batch_size'])
 for it, (grid, image) in enumerate(data_loader):
 
     n = config['down_sample_factor']
-    image = image.cuda()                                        # [1, h, w, d, 1], value range = [0, 1]
-    grid = grid.squeeze()[::n,::n,::n].unsqueeze(0).cuda()      # [1, h, w, d, 3], value range = [0, 1]
+    image = image.cuda()                                                     # [1, h, w, d, 1], value range = [0, 1]
+    grid = grid.squeeze()[::n,::n,::n].unsqueeze(0).cuda()                   # [1, h, w, d, 3], value range = [0, 1]
 
     output_subfolder = config['data']
     model_name = os.path.join(output_folder, f"{output_subfolder}/img{list(image.squeeze().shape)}_proj{config['num_proj_sparse_view']}_{config['lr']}_scale{config['encoder']['scale']}_size{config['encoder']['embedding_size']}")
@@ -67,17 +67,16 @@ for it, (grid, image) in enumerate(data_loader):
     shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy config file to output folder
     print(model_name)
 
-    ct_projector_sparse_view = ConeBeam3DProjector(image.squeeze().shape, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+    ct_projector_sparse_view = ConeBeam3DProjector(image.squeeze().shape, num_proj=config['num_proj_sparse_view'])
 
     projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
     fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
 
-    fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4).squeeze().cuda()                         # [1, h, w, 1]
+    fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
     fbp_recon = torch.tensor(fbp_recon, dtype=torch.float16)                                    # [B, C, H, W]
-    fbp_volume = torch.tensor(fbp_recon, dtype=torch.float16)                                   # save full sample size for later use
+    fbp_volume = torch.tensor(fbp_recon, dtype=torch.float16)
 
-    fbp_recon = fbp_recon[::n,::n,::n]               # down-sample by factor n
-    fbp_recon = fbp_recon.unsqueeze(0).unsqueeze(4)  # [1, 128, 128, 128, 1] nproj=128
+    fbp_recon = fbp_recon.squeeze()[::n,::n,::n].unsqueeze(0).unsqueeze(4).cuda()               # down-sample by factor n
 
     ct_projector_sparse_view = ConeBeam3DProjector(fbp_recon.squeeze().shape, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
     projections = ct_projector_sparse_view.forward_project(fbp_recon.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
@@ -122,8 +121,7 @@ for it, (grid, image) in enumerate(data_loader):
 
             end = time.time()
 
-            print("[Volume Nr. {} Iteration: {}/{}] | FBP SSIM: {:.4g} | MSE {:.4g} | PSNR {:.4g} |Time Elapsed: {}".format(it + 1, iterations + 1, max_iter, test_ssim, test_mse, test_psnr, (end - start) / 60))
-
+            print("[Volume Nr. {} Iteration: {}/{}] | FBP SSIM: {:.4g} | MSE {:.4g} | PSNR {:.4g} | Time Elapsed: {}".format(it + 1, iterations + 1, max_iter, test_ssim, test_mse, test_psnr, (end - start) / 60))
 
     '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
@@ -140,8 +138,8 @@ for it, (grid, image) in enumerate(data_loader):
     fbp_volume = fbp_volume.squeeze()
     fbp_volume = torch.tensor(fbp_volume, dtype=torch.float16)[None, ...]
 
-    ct_projector_full_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, proj_size=config['proj_size'], num_proj=512)
-    ct_projector_sparse_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+    ct_projector_full_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, num_proj=config['num_proj_full_view'])
+    ct_projector_sparse_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, num_proj=config['num_proj_sparse_view'])
 
     projs_prior_full_view = ct_projector_full_view.forward_project(prior_volume.transpose(1, 4).squeeze(1))
     fbp_prior_full_view = ct_projector_full_view.backward_project(projs_prior_full_view)
@@ -162,7 +160,9 @@ for it, (grid, image) in enumerate(data_loader):
 
     test_mse = mse(image, corrected_volume)
     test_ssim = compare_ssim(image, corrected_volume, axis=-1, data_range=1.0)
-    print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}")
+    test_psnr = psnr(image, corrected_volume, data_range=1.0)
+
+    print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}")
 
     save_volume(fbp_volume, image_directory, config, "fbp_volume")
     save_volume(corrected_volume, image_directory, config, "corrected_volume")

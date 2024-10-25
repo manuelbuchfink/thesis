@@ -13,7 +13,7 @@ from odl.contrib import torch as odl_torch
 
 
 class Initialization_ConeBeam:
-    def __init__(self, image_size, num_proj, start_angle, proj_size):
+    def __init__(self, image_size, num_proj, start_angle):
         '''
         image_size: [z, x, y]
         proj_size: [h, w]
@@ -22,7 +22,6 @@ class Initialization_ConeBeam:
 
         self.image_size = image_size
         self.num_proj = num_proj
-        self.proj_size = proj_size
         self.reso = 512. / np.max((self.image_size[1], 1)) # avoid div by zero
 
         ## Imaging object (reconstruction objective) with object center as origin
@@ -42,8 +41,8 @@ class Initialization_ConeBeam:
         ## Detector
         self.param['sh'] = self.param['sx'] * (1.5) # Size of a detector pixel. 768
         self.param['sw'] = np.sqrt(self.param['sx']**2 + self.param['sy']**2) * (1.5) # 724
-        self.param['nh'] = proj_size[0]
-        self.param['nw'] = proj_size[1]
+        self.param['nh'] = self.image_size[2]
+        self.param['nw'] = self.image_size[1]
         '''
         dde = source_to_detector - source_to_isocenter = 1085,6 - 595 = 490,6
         '''
@@ -130,16 +129,14 @@ class FBP_ConeBeam(nn.Module):
 
 
 class ConeBeam3DProjector():
-    def __init__(self, image_size, proj_size, num_proj):
+    def __init__(self, image_size, num_proj):
 
         self.image_size = image_size
-        self.proj_size = proj_size
         self.num_proj = num_proj
         self.start_angle = 0
 
         # Initialize required parameters for image, view, detector
         geo_param = Initialization_ConeBeam(image_size=image_size,
-                                            proj_size=self.proj_size,
                                             num_proj=self.num_proj,
                                             start_angle=self.start_angle
                                             )

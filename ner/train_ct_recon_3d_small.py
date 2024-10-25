@@ -16,7 +16,7 @@ import warnings
 
 from networks import Positional_Encoder_3D, FFN_3D
 from ct_3d_projector import ConeBeam3DProjector
-from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_volume
+from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_volume, save_image_2d
 from data import ImageDataset_3D_hdf5
 
 import torch # pylint: disable=import-error
@@ -67,7 +67,7 @@ for it, (grid, image) in enumerate(data_loader):
     shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy config file to output folder
     print(model_name)
 
-    ct_projector_sparse_view = ConeBeam3DProjector(image.squeeze().shape, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+    ct_projector_sparse_view = ConeBeam3DProjector(image.squeeze().shape, num_proj=config['num_proj_sparse_view'])
 
     projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
     fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
@@ -91,15 +91,15 @@ for it, (grid, image) in enumerate(data_loader):
 
     train_embedding = encoder.embedding(grid)  # fourier feature embedding:  ([1, x, y, z, 3] * [3, embedding_size]) -> [1, z, x, y, embedding_size]
     scaler = torch.cuda.amp.GradScaler()
-    # Train model
-    for iterations in range(max_iter):
+
+    for iterations in range(max_iter): # train model
 
         model.train()
         optim.zero_grad()
 
         with torch.cuda.amp.autocast(dtype=torch.float16):
-            train_output = model(train_embedding)  # train model on grid: ([1, x, y, embedding_size]) > [1, x, y, 1]
-            train_loss = (0.5 * loss_fn(train_output.to("cuda"), fbp_recon.to("cuda")))                                    # compare forward projected grid with sparse view projection
+            train_output = model(train_embedding)                                           # train model on grid: ([1, x, y, embedding_size]) > [1, x, y, 1]
+            train_loss = (0.5 * loss_fn(train_output.to("cuda"), fbp_recon.to("cuda")))     # compare forward projected grid with sparse view projection
 
         train_projections = ct_projector_sparse_view.forward_project(train_output.transpose(1, 4).squeeze(1)).to("cuda")      # evaluate by forward projecting
 
@@ -107,9 +107,8 @@ for it, (grid, image) in enumerate(data_loader):
         scaler.step(optim)
         scaler.update()
 
-        # Compute ssim
-        if (iterations + 1) % config['val_iter'] == 0:
-
+        if (iterations + 1) % config['val_iter'] == 0: # compute metrics
+            save_image_2d(train_output[:,87,:,:,:].float(), os.path.join(image_directory, f"test_slice_{iterations + 1}.png"))
             model.eval()
             with torch.no_grad():
                 fbp_prior = ct_projector_sparse_view.backward_project(train_projections).unsqueeze(1).transpose(1, 4)
@@ -121,14 +120,22 @@ for it, (grid, image) in enumerate(data_loader):
 
             print("[Volume Nr. {} Iteration: {}/{}] | FBP SSIM: {:.4g} | MSE {:.4g} | PSNR {:.4g} | Time Elapsed: {}".format(it + 1, iterations + 1, max_iter, test_ssim, test_mse, test_psnr, (end - start) / 60))
 
+    '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+    LOAD IMAGE SLICES INTO CORRECTED_IMAGES
+
+
+    '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
     prior_volume = train_output.squeeze()
-    prior_volume = torch.tensor(prior_volume, dtype=torch.float16)[None, ...].unsqueeze(4)
+    prior_volume = torch.tensor(prior_volume, dtype=torch.float16)[None, ...].unsqueeze(0)
+    prior_volume = prior_volume.squeeze(0).unsqueeze(4)
 
     fbp_volume = fbp_volume.squeeze()
     fbp_volume = torch.tensor(fbp_volume, dtype=torch.float16)[None, ...]
 
-    ct_projector_full_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, proj_size=config['proj_size'], num_proj=512)
+    ct_projector_full_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, num_proj=config['num_proj_full_view'])
+    ct_projector_sparse_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, num_proj=config['num_proj_sparse_view'])
 
     projs_prior_full_view = ct_projector_full_view.forward_project(prior_volume.transpose(1, 4).squeeze(1))
     fbp_prior_full_view = ct_projector_full_view.backward_project(projs_prior_full_view)
@@ -145,11 +152,11 @@ for it, (grid, image) in enumerate(data_loader):
     fbp_volume = fbp_volume.squeeze().cpu().detach().numpy()
     prior_volume = prior_volume.squeeze().cuda().cpu().detach().numpy()
     streak_volume = streak_volume.squeeze().cuda().cpu().detach().numpy()
-    image_volume = image.squeeze().cpu().detach().numpy()
+    image = image.squeeze().cpu().detach().numpy()
 
-    test_mse = mse(image_volume, corrected_volume)
-    test_ssim = compare_ssim(image_volume, corrected_volume, axis=-1, data_range=1.0)
-    test_psnr = psnr(image_volume, corrected_volume, data_range=1.0)
+    test_mse = mse(image, corrected_volume)
+    test_ssim = compare_ssim(image, corrected_volume, axis=-1, data_range=1.0)
+    test_psnr = psnr(image, corrected_volume, data_range=1.0)
 
     print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}")
 
