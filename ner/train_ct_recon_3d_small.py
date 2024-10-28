@@ -134,7 +134,7 @@ for it, (grid, image) in enumerate(data_loader):
     fbp_volume = fbp_volume.squeeze()
     fbp_volume = torch.tensor(fbp_volume, dtype=torch.float16)[None, ...]
 
-    ct_projector_full_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, num_proj=config['num_proj_full_view'])
+    ct_projector_full_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, 512)
     ct_projector_sparse_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, num_proj=config['num_proj_sparse_view'])
 
     projs_prior_full_view = ct_projector_full_view.forward_project(prior_volume.transpose(1, 4).squeeze(1))

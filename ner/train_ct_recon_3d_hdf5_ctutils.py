@@ -67,14 +67,14 @@ for it, (grid, image) in enumerate(data_loader):
     shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy config file to output folder
     print(model_name)
 
-
     ct_projector_sparse_view = ConeBeam3DProjector(image.squeeze().shape, config['cb_para'])
+
     projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
     fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
 
     fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
-    fbp_volume = fbp_recon.squeeze().cuda()
-
+    fbp_recon = torch.tensor(fbp_recon, dtype=torch.float16)                                    # [B, C, H, W]
+    fbp_volume = torch.tensor(fbp_recon, dtype=torch.float16)
 
     # Setup input encoder:
     encoder = Positional_Encoder_3D(config['encoder'])
@@ -90,8 +90,8 @@ for it, (grid, image) in enumerate(data_loader):
 
     train_embedding = encoder.embedding(grid)  # fourier feature embedding:  ([1, x, y, z, 3] * [3, embedding_size]) -> [1, z, x, y, embedding_size]
     scaler = torch.cuda.amp.GradScaler()
-    # Train model
-    for iterations in range(max_iter):
+
+    for iterations in range(max_iter):     # Train model
 
         model.train()
         optim.zero_grad()
@@ -108,8 +108,7 @@ for it, (grid, image) in enumerate(data_loader):
         scaler.step(optim)
         scaler.update()
 
-        # Compute ssim
-        if (iterations + 1) % config['val_iter'] == 0:
+        if (iterations + 1) % config['val_iter'] == 0:         # Compute ssim
 
             model.eval()
             with torch.no_grad():
@@ -122,14 +121,22 @@ for it, (grid, image) in enumerate(data_loader):
 
             print("[Volume Nr. {} Iteration: {}/{}] | FBP SSIM: {:.4g} | MSE {:.4g} | PSNR {:.4g} | Time Elapsed: {}".format(it + 1, iterations + 1, max_iter, test_ssim, test_mse, test_psnr, (end - start) / 60))
 
+    '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+    LOAD IMAGE SLICES INTO CORRECTED_IMAGES
+
+
+    '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
     prior_volume = train_output.squeeze()
-    prior_volume = torch.tensor(prior_volume, dtype=torch.float16)[None, ...].unsqueeze(4)
+    prior_volume = torch.tensor(prior_volume, dtype=torch.float16)[None, ...].unsqueeze(0)
+    prior_volume = prior_volume.squeeze(0).unsqueeze(4)
 
     fbp_volume = fbp_volume.squeeze()
     fbp_volume = torch.tensor(fbp_volume, dtype=torch.float16)[None, ...]
 
     ct_projector_full_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, config['cb_para_full'])
+    ct_projector_sparse_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, config['cb_para'])
 
     projs_prior_full_view = ct_projector_full_view.forward_project(prior_volume.transpose(1, 4).squeeze(1))
     fbp_prior_full_view = ct_projector_full_view.backward_project(projs_prior_full_view)

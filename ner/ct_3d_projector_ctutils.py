@@ -49,8 +49,8 @@ class Initialization_ConeBeam_modi:
         self.param['nProj'] = cb_para['num_projs']
 
         ## Detector
-        self.param['nh'] = 512 #cb_para['detector_height']
-        self.param['nw'] = 512 #cb_para['detector_width']
+        self.param['nh'] = self.image_size[2]
+        self.param['nw'] = self.image_size[1]
 
         # magnification m = SDD / SOD = 1281.909 / 646.0335 = 1.98427635719
         # pixel size = voxel size * magnifiactaion = 0.064 * 1.98427635719 = 0.12699368686
