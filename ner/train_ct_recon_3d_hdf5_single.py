@@ -27,8 +27,8 @@ from skimage.metrics import structural_similarity as compare_ssim # pylint: disa
 from skimage.metrics import mean_squared_error  as mse # pylint: disable=import-error
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from skimage.measure import profile_line
-sys.path.append('zhome/buchfiml/miniconda3/envs/odl/lib/python3.11/site-packages')
-sys.path.append(os.getcwd())
+import matplotlib.pyplot as plt
+
 warnings.filterwarnings("ignore")
 start = time.time()
 
@@ -68,11 +68,10 @@ for it, (grid, image) in enumerate(data_loader):
     print(model_name)
 
     ct_projector_sparse_view = ConeBeam3DProjector(image.squeeze().shape, num_proj=config['num_proj_sparse_view'])
-    #save_image_2d(image.squeeze().float().unsqueeze(0).unsqueeze(4)[:,255,:,:,:], os.path.join(image_directory, f"image_1.png"))
+    save_image_2d(image.squeeze().float().unsqueeze(0).unsqueeze(4)[:,255,:,:,:], os.path.join(image_directory, f"image_1.png"))
     projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
-    #save_image_2d(projections.squeeze().float().unsqueeze(0).unsqueeze(4)[:,255,:,:,:], os.path.join(image_directory, f"proj_1.png"))
     fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
-    #save_image_2d(fbp_recon.unsqueeze(1).transpose(1, 4).squeeze().float().unsqueeze(0).unsqueeze(4)[:,255,:,:,:], os.path.join(image_directory, f"FBP_1.png"))
+
     fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
     fbp_recon = torch.tensor(fbp_recon, dtype=torch.float16)                                    # [B, C, H, W]
     fbp_volume = torch.tensor(fbp_recon, dtype=torch.float16)
@@ -178,12 +177,12 @@ for it, (grid, image) in enumerate(data_loader):
 
 
     orient1_slice_corrdiff = prior_volume.squeeze().unsqueeze(0).unsqueeze(4).transpose(1, 4) - image.squeeze().unsqueeze(0).unsqueeze(4).transpose(1, 4)
-    orient2_slice_corrdiff = prior_volume.squeeze().unsqueeze(0).unsqueeze(4).transpose(3, 4) - image.squeeze().unsqueeze(0).unsqueeze(4).transpose(3, 4)
+    orient2_slice_corrdiff = prior_volume.squeeze().unsqueeze(0).unsqueeze(4).transpose(1, 3) - image.squeeze().unsqueeze(0).unsqueeze(4).transpose(1, 3)
 
     slice_nr = 255
     row_nr = 255
-    column_start = 200
-    column_end = 250
+    column_start = 0
+    column_end = 511
     save_image_2d(fbp_volume.squeeze().float().unsqueeze(0).unsqueeze(4)[:,slice_nr,:,:,:], os.path.join(image_directory, f"FBP_volume.png"))
     save_image_2d(corrected_volume.squeeze().float().unsqueeze(0).unsqueeze(4)[:,slice_nr,:,:,:], os.path.join(image_directory, f"corrected_volume.png"))
     save_image_2d(prior_volume.squeeze().float().unsqueeze(0).unsqueeze(4)[:,slice_nr,:,:,:], os.path.join(image_directory, f"prior_volume.png"))
@@ -200,14 +199,24 @@ for it, (grid, image) in enumerate(data_loader):
     save_image_2d(orient1_slice_corrdiff.squeeze().float().unsqueeze(0).unsqueeze(4)[:,slice_nr,:,:,:], os.path.join(image_directory, f"prior_minus_image_skewed.png"))
     save_image_2d(orient2_slice_corrdiff.squeeze().float().unsqueeze(0).unsqueeze(4)[:,slice_nr,:,:,:], os.path.join(image_directory, f"prior_minus_image_skewed2.png"))
 
-    # line_original = profile_line(image.float().squeeze().cpu().numpy()[slice_nr,:,:], (255,0), (255,511), 1)
-    # line_prior = profile_line(prior_volume.float().squeeze().cpu().numpy()[slice_nr,:,:], (255,0), (255,511), 1)
     line_original = profile_line(image.float().squeeze().cpu().numpy()[slice_nr,:,:], (row_nr,column_start), (row_nr,column_end), 1)
     line_prior = profile_line(prior_volume.float().squeeze().cpu().numpy()[slice_nr,:,:], (row_nr,column_start), (row_nr,column_end), 1)
-    print(f"ground truth line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_original}")
-    print(f"prior line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_prior}")
-    print(f"difference line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_original-line_prior}")
 
+    # print(f"ground truth line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_original}")
+    # print(f"prior line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_prior}")
+    # print(f"difference line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_original-line_prior}")
+
+    plt.plot(line_original)
+    plt.plot(line_prior)
+
+    plt.legend(['ground truth', 'train_output'], loc='upper left')
+
+    plt.xlabel("column")
+    plt.ylabel("intensity")
+    plt.title(f'line profile slice {slice_nr}, row {row_nr}, columns [{column_start}, {column_end}], iterations {max_iter}')
+
+    plt.savefig(os.path.join(image_directory,f'line_profile_slice_{slice_nr}_row_{row_nr}_columns_[{column_start}, {column_end}]_iterations_{max_iter}.png'), bbox_inches='tight')
+    plt.show()
 
     difference_volume = difference_volume.squeeze().cpu().detach().numpy()
     streak_original = streak_original.squeeze().cpu().detach().numpy()

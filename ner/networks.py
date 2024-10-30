@@ -14,11 +14,15 @@ class Positional_Encoder():
         else:
             raise NotImplementedError
 
+    # def embedding(self, x):
+    #     x_embedding = (2. * np.pi * x).to("cuda") @ self.B.t().to("cuda") # @ is dot product, .t() is transpose
+    #     x_embedding = torch.cat([torch.sin(x_embedding), torch.cos(x_embedding)], dim=-1).to("cuda")
+    #     return x_embedding
     def embedding(self, x):
-        x_embedding = (2. * np.pi * x).to("cuda") @ self.B.t().to("cuda") # @ is dot product, .t() is transpose
-        x_embedding = torch.cat([torch.sin(x_embedding), torch.cos(x_embedding)], dim=-1).to("cuda")
+        #x_embedding = ((2. * np.pi * x).to("cuda") @ self.B.t().to("cuda")).int() # @ is dot product, .t() is transpose
+        x_embedding = torch.matmul(((2. * np.pi * x).bfloat16().to("cuda")) ,(self.B.t().bfloat16().to("cuda"))).bfloat16().to("cuda") # @ is dot product, .t() is transpose
+        x_embedding = torch.cat([torch.sin(x_embedding).bfloat16(), torch.cos(x_embedding).bfloat16()], dim=-1).bfloat16().to("cuda")
         return x_embedding
-
 ############ Input Positional Encoding 3D ############
 class Positional_Encoder_3D():
     def __init__(self, params):

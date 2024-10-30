@@ -1,37 +1,23 @@
 '''
-adapted from 
+adapted from
 https://arxiv.org/pdf/2108.10991
 NeRP: Implicit Neural Representation Learning
 with Prior Embedding for Sparsely Sampled
 Image Reconstruction
 Liyue Shen, John Pauly, Lei Xing
 '''
-import sys
 import os
 import argparse
-import shutil
-sys.path.append('zhome/buchfiml/miniconda3/envs/odl/lib/python3.11/site-packages')
-sys.path.append(os.getcwd()) 
-import wandb
+import time
+import gc
+import warnings
+
 import torch
 import torch.backends.cudnn as cudnn
-import tensorboardX
-import numpy as np
-import torch.nn.functional as F
 
-from ct_2d_projector import FanBeam2DProjector
-from data import ImageDataset_2D_hdf5
-from networks import Positional_Encoder, FFN
-from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, reshape_tensor, correct_image_slice, get_image_pads, reshape_model_weights, save_image
-from skimage.metrics import structural_similarity as compare_ssim
-
-import gc
-from datetime import datetime
-import h5py
-import warnings
+from utils import get_config, prepare_sub_folder
 warnings.filterwarnings("ignore")
-from utils import save_image_2d
-import time
+
 start = time.time()
 
 parser = argparse.ArgumentParser()
@@ -60,6 +46,5 @@ if not(config['encoder']['embedding'] == 'none'):
     model_name += '_scale{}_size{}'.format(config['encoder']['scale'], config['encoder']['embedding_size'])
 print(model_name)
 
-train_writer = tensorboardX.SummaryWriter(os.path.join(opts.output_path + "/logs", model_name))
 output_directory = os.path.join(opts.output_path + "/outputs", model_name)
 checkpoint_directory, image_directory = prepare_sub_folder(output_directory)

@@ -1,5 +1,5 @@
 '''
-adapted from 
+adapted from
 https://arxiv.org/pdf/2108.10991
 NeRP: Implicit Neural Representation Learning
 with Prior Embedding for Sparsely Sampled
@@ -19,19 +19,19 @@ class Initialization_FanBeam:
         proj_size: h = 512
         '''
         self.param = {}
-    
+
         self.num_proj = num_proj
         self.image_width = image_width
         self.image_height = image_height
-  
-        
+
+
         self.reso = 512. / np.max((self.image_width, 1)) # avoid div by zero
 
         ## Imaging object (reconstruction objective) with object center as origin
         self.param['nx'] = self.image_width
         self.param['ny'] = self.image_height
         self.param['nh'] = proj_size
- 
+
         self.param['sx'] = self.param['nx'] * self.reso
         self.param['sy'] = self.param['ny'] * self.reso
 
@@ -40,8 +40,8 @@ class Initialization_FanBeam:
         self.param['end_angle'] = start_angle +  2 * np.pi # 360
         self.param['nProj'] = num_proj
 
-        ## Detector  
-        self.param['sh'] = self.param['sx'] * (1.286) # Size of a detector pixel.  
+        ## Detector
+        self.param['sh'] = self.param['sx'] * (1.286) # Size of a detector pixel.
 
         '''
         dde = source_to_detector - source_to_isocenter = 1085,6 - 595 = 490,6
@@ -52,14 +52,14 @@ class Initialization_FanBeam:
 def build_fanbeam_geometry(param):
     # Reconstruction space:
     reco_space = odl.uniform_discr(min_pt=[-param.param['sx'] / 2.0, -param.param['sy'] / 2.0],
-                                    max_pt=[param.param['sx'] / 2.0, param.param['sy'] / 2.0], 
+                                    max_pt=[param.param['sx'] / 2.0, param.param['sy'] / 2.0],
                                     shape=[param.param['nx'], param.param['ny']],
                                     dtype='float32')
-    
-    angle_partition = odl.uniform_partition(min_pt=param.param['start_angle'], 
+
+    angle_partition = odl.uniform_partition(min_pt=param.param['start_angle'],
                                             max_pt=param.param['end_angle'],
                                             shape=param.param['nProj'])
-  
+
     detector_partition = odl.uniform_partition(min_pt=-(param.param['sh']),
                                                max_pt=(param.param['sh']),
                                                shape=param.param['nh']) # projection size
@@ -68,17 +68,17 @@ def build_fanbeam_geometry(param):
     geometry = odl.tomo.FanBeamGeometry(apart=angle_partition, # partition of the angle interval
                                         dpart=detector_partition, # partition of the detector parameter interval
                                         src_radius=param.param['dso'], # radius of the source circle
-                                        det_radius=param.param['dde'] # radius of the detector circle 
+                                        det_radius=param.param['dde'] # radius of the detector circle
                                         )
-    
+
     ray_trafo = odl.tomo.RayTransform(vol_space=reco_space, # domain of forward projector
                                       geometry=geometry, # geometry of the transform
-                                      impl='astra_cuda'                                    
+                                      impl='astra_cuda'
                                       ) # implementation back-end for the transform: ASTRA toolbox, using CUDA, 2D
-    
-    FBPOper = odl.tomo.fbp_op(ray_trafo=ray_trafo, 
+
+    FBPOper = odl.tomo.fbp_op(ray_trafo=ray_trafo,
                              frequency_scaling=1.0)
-    
+
     # Reconstruction space for imaging object, RayTransform operator, Filtered back-projection operator
     return reco_space, ray_trafo, FBPOper
 
@@ -89,20 +89,20 @@ class Projection_FanBeam(nn.Module):
         super(Projection_FanBeam, self).__init__()
         self.param = param
         self.reso = param.reso
-        
+
         # RayTransform operator
         reco_space, ray_trafo, FBPOper = build_fanbeam_geometry(self.param)
-        
+
         # Wrap pytorch module
         self.trafo = odl_torch.OperatorModule(ray_trafo)
-        
+
         self.back_projector = odl_torch.OperatorModule(ray_trafo.adjoint)
 
     def forward(self, x):
         x = self.trafo(x)
         x = x / self.reso
         return x
-    
+
     def back_projection(self, x):
         x = self.back_projector(x)
         return x
@@ -113,9 +113,9 @@ class FBP_FanBeam(nn.Module):
     def __init__(self, param):
         super(FBP_FanBeam, self).__init__()
         self.param = param
-        
+
         reco_space, ray_trafo, FBPOper = build_fanbeam_geometry(self.param)
-        
+
         self.fbp = odl_torch.OperatorModule(FBPOper)
 
     def forward(self, x):
@@ -137,10 +137,10 @@ class FanBeam2DProjector():
         self.start_angle = 0
 
         # Initialize required parameters for image, view, detector
-        geo_param = Initialization_FanBeam(image_height=self.image_height, 
-                                           image_width=self.image_width, 
+        geo_param = Initialization_FanBeam(image_height=self.image_height,
+                                           image_width=self.image_width,
                                             proj_size=self.proj_size,
-                                            num_proj=self.num_proj, 
+                                            num_proj=self.num_proj,
                                             start_angle=self.start_angle
                                             )
         # Forward projection function
@@ -164,4 +164,3 @@ class FanBeam2DProjector():
         '''
         volume = self.fbp(projs)
         return volume
-
