@@ -6,7 +6,7 @@ with Prior Embedding for Sparsely Sampled
 Image Reconstruction
 Liyue Shen, John Pauly, Lei Xing
 '''
-import sys
+
 import os
 import argparse
 import shutil
@@ -27,8 +27,7 @@ from skimage.metrics import mean_squared_error  as mse # pylint: disable=import-
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from skimage.measure import profile_line
 import matplotlib.pyplot as plt
-sys.path.append('zhome/buchfiml/miniconda3/envs/odl/lib/python3.11/site-packages')
-sys.path.append(os.getcwd())
+
 warnings.filterwarnings("ignore")
 
 start = time.time()
@@ -56,6 +55,10 @@ dataset = ImageDataset_3D_hdf5(config['img_path'])
 data_loader = get_data_loader_hdf5(dataset, batch_size=config['batch_size'])
 
 for it, (grid, image) in enumerate(data_loader):
+    slice_nr = 86
+    row_nr = 86
+    column_start = 0
+    column_end = 170
 
     n = config['down_sample_factor']
     image = image.squeeze()[::n,::n,::n].unsqueeze(0).unsqueeze(4).cuda()    # [1, h, w, d, 1], value range = [0, 1]
@@ -67,16 +70,30 @@ for it, (grid, image) in enumerate(data_loader):
     checkpoint_directory, image_directory = prepare_sub_folder(output_directory)
     shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy config file to output folder
     print(model_name)
+    line_image = profile_line(image.squeeze().float().squeeze().cpu().detach().numpy()[slice_nr,:,:], (row_nr,column_start), (row_nr,column_end), 1)
 
     ct_projector_sparse_view = ConeBeam3DProjector(image.squeeze().shape, num_proj=config['num_proj_sparse_view'])
-
     projections = ct_projector_sparse_view.forward_project(image.transpose(1, 4).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
     fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
 
     fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
     fbp_recon = torch.tensor(fbp_recon, dtype=torch.float16)                                    # [B, C, H, W]
     fbp_volume = torch.tensor(fbp_recon, dtype=torch.float16)
+    line_proj = profile_line(projections.squeeze().float().squeeze().cpu().detach().numpy()[64,:,:], (row_nr,column_start), (row_nr,column_end), 1)
+    line_fbp = profile_line(fbp_recon.squeeze().float().squeeze().cpu().detach().numpy()[slice_nr,:,:], (row_nr,column_start), (row_nr,column_end), 1)
+    plt.plot(line_image)
+    #plt.plot(line_proj)
+    plt.plot(line_fbp)
+    #plt.legend(['proj'], loc='upper left')
+    plt.legend(['image', 'fbp'], loc='upper left')
 
+    plt.xlabel("column")
+    plt.ylabel("intensity")
+    plt.title(f'line profile slice {slice_nr}, row {row_nr}, columns [{column_start}, {column_end}], small')
+
+    plt.savefig(os.path.join(image_directory,f'line_profile_slice_{slice_nr}_row_{row_nr}_columns_[{column_start}, {column_end}]_small.png'), bbox_inches='tight')
+    plt.show()
+    plt.clf()
 
     # Setup input encoder:
     encoder = Positional_Encoder_3D(config['encoder'])
@@ -103,13 +120,35 @@ for it, (grid, image) in enumerate(data_loader):
             train_projections = ct_projector_sparse_view.forward_project(train_output.transpose(1, 4).squeeze(1)).to("cuda")      # evaluate by forward projecting
             train_loss = (0.5 * loss_fn(train_output.to("cuda"), fbp_recon.to("cuda")))     # compare forward projected grid with sparse view projection
 
+        scaler.scale(fbp_recon)
         scaler.scale(train_projections)
         scaler.scale(train_loss).backward()
         scaler.step(optim)
         scaler.update()
 
         if (iterations + 1) % config['val_iter'] == 0: # compute metrics
+            slice_nr = 87
+            row_nr = 87
+            column_start = 0
+            column_end = 170
             save_image_2d(train_output[:,87,:,:,:].float(), os.path.join(image_directory, f"test_slice_{iterations + 1}.png"))
+            line_original = profile_line(image.float().squeeze().cpu().detach().numpy()[slice_nr,:,:], (row_nr,column_start), (row_nr,column_end), 1)
+            line_prior = profile_line(train_output.float().squeeze().cpu().detach().numpy()[slice_nr,:,:], (row_nr,column_start), (row_nr,column_end), 1)
+            line_fbp = profile_line(fbp_recon.squeeze().float().squeeze().cpu().detach().numpy()[slice_nr,:,:], (row_nr,column_start), (row_nr,column_end), 1)
+
+            plt.plot(line_original)
+            plt.plot(line_prior)
+            plt.plot(line_fbp)
+            plt.legend(['ground truth', 'train_output', 'fbp'], loc='upper left')
+
+            plt.xlabel("column")
+            plt.ylabel("intensity")
+            plt.title(f'line profile slice {slice_nr}, row {row_nr}, columns [{column_start}, {column_end}], iterations {iterations + 1}')
+
+            plt.savefig(os.path.join(image_directory,f'line_profile_slice_{slice_nr}_row_{row_nr}_columns_[{column_start}, {column_end}]_iterations_{iterations + 1}.png'), bbox_inches='tight')
+            plt.show()
+            plt.clf()
+            save_image_2d(train_output[:,86,:,:,:].float(), os.path.join(image_directory, f"test_slice_{iterations + 1}.png"))
             model.eval()
             with torch.no_grad():
                 fbp_prior = ct_projector_sparse_view.backward_project(train_projections).unsqueeze(1).transpose(1, 4)
@@ -135,7 +174,7 @@ for it, (grid, image) in enumerate(data_loader):
     fbp_volume = fbp_volume.squeeze()
     fbp_volume = torch.tensor(fbp_volume, dtype=torch.float16)[None, ...]
 
-    ct_projector_full_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, 512)
+    ct_projector_full_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, num_proj=512)
     ct_projector_sparse_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, num_proj=config['num_proj_sparse_view'])
 
     projs_prior_full_view = ct_projector_full_view.forward_project(prior_volume.transpose(1, 4).squeeze(1))
@@ -191,14 +230,11 @@ for it, (grid, image) in enumerate(data_loader):
     save_image_2d(orient1_slice_corrdiff.squeeze().float().unsqueeze(0).unsqueeze(4)[:,slice_nr,:,:,:], os.path.join(image_directory, f"prior_minus_image_skewed.png"))
     save_image_2d(orient2_slice_corrdiff.squeeze().float().unsqueeze(0).unsqueeze(4)[:,slice_nr,:,:,:], os.path.join(image_directory, f"prior_minus_image_skewed2.png"))
 
-    # line_original = profile_line(image.float().squeeze().cpu().numpy()[slice_nr,:,:], (255,0), (255,511), 1)
-    # line_prior = profile_line(prior_volume.float().squeeze().cpu().numpy()[slice_nr,:,:], (255,0), (255,511), 1)
     line_original = profile_line(image.float().squeeze().cpu().numpy()[slice_nr,:,:], (row_nr,column_start), (row_nr,column_end), 1)
     line_prior = profile_line(prior_volume.float().squeeze().cpu().numpy()[slice_nr,:,:], (row_nr,column_start), (row_nr,column_end), 1)
-    print(f"ground truth line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_original}")
-    print(f"prior line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_prior}")
-    print(f"difference line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_original-line_prior}")
-    print(f"line shapes orig: {line_original.size}, prior: {line_prior.size}")
+    # print(f"ground truth line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_original}")
+    # print(f"prior line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_prior}")
+    # print(f"difference line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_original-line_prior}")
     plt.plot(line_original)
     plt.plot(line_prior)
 
@@ -227,9 +263,12 @@ for it, (grid, image) in enumerate(data_loader):
     test_psnr = psnr(image, corrected_volume, data_range=1.0)
 
     print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}")
-
     # save_volume(fbp_volume, image_directory, config, "fbp_volume")
     # save_volume(corrected_volume, image_directory, config, "corrected_volume")
     # save_volume(prior_volume, image_directory, config, "prior_volume")
     # save_volume(streak_volume, image_directory, config, "streak_volume")
     # save_volume(fbp_prior_full_view, image_directory, config, "fbp_prior_full_view")
+    # save_volume(fbp_prior_sparse_view, image_directory, config, "fbp_prior_sparse_view")
+    # save_volume(difference_volume, image_directory, config, "difference_volume")
+    # save_volume(streak_original, image_directory, config, "difference_volume")
+    # save_volume(streak_difference, image_directory, config, "streak_difference")

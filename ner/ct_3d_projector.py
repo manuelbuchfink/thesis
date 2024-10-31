@@ -22,16 +22,16 @@ class Initialization_ConeBeam:
 
         self.image_size = image_size
         self.num_proj = num_proj
-        self.reso = 512. / np.max((self.image_size[1], 1)) # avoid div by zero
+        #self.reso = 512. / np.max((self.image_size[1], 1)) # avoid div by zero
 
         ## Imaging object (reconstruction objective) with object center as origin
         self.param['nx'] = self.image_size[1]
         self.param['ny'] = self.image_size[2]
         self.param['nz'] = self.image_size[0]
 
-        self.param['sx'] = self.param['nx'] * self.reso
-        self.param['sy'] = self.param['ny'] * self.reso
-        self.param['sz'] = self.param['nz'] * self.reso
+        self.param['sx'] = self.param['nx'] #* self.reso
+        self.param['sy'] = self.param['ny'] #* self.reso
+        self.param['sz'] = self.param['nz'] #* self.reso
 
         ## Projection view angles (ray directions)
         self.param['start_angle'] = start_angle            # 0
@@ -46,8 +46,8 @@ class Initialization_ConeBeam:
         '''
         dde = source_to_detector - source_to_isocenter = 1085,6 - 595 = 490,6
         '''
-        self.param['dde'] = 500 * self.reso # distance between origin and detector center (assume in x axis)
-        self.param['dso'] = 1000 * self.reso # distance between origin and source (assume in x axis)
+        self.param['dde'] = 500 #* self.reso # distance between origin and detector center (assume in x axis)
+        self.param['dso'] = 1000 #* self.reso # distance between origin and source (assume in x axis)
 
 def build_conebeam_geometry(param):
     # Reconstruction space:
@@ -89,7 +89,7 @@ class Projection_ConeBeam(nn.Module):
     def __init__(self, param):
         super(Projection_ConeBeam, self).__init__()
         self.param = param
-        self.reso = param.reso
+        #self.reso = param.reso
 
         # RayTransform operator
         reco_space, ray_trafo, FBPOper = build_conebeam_geometry(self.param)
@@ -101,7 +101,7 @@ class Projection_ConeBeam(nn.Module):
 
     def forward(self, x):
         x = self.trafo(x)
-        x = x / self.reso
+        x = x #/ self.reso
         return x
 
     def back_projection(self, x):

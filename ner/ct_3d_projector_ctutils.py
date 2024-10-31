@@ -93,7 +93,7 @@ def build_conebeam_gemotry(param):
                                      impl='astra_cuda') # implementation back-end for the transform: ASTRA toolbox, using CUDA, 2D or 3D
 
     FBPOper = odl.tomo.fbp_op(ray_trafo=ray_trafo,
-                             filter_type='Ram-Lak',
+                             #filter_type='Ram-Lak',
                              frequency_scaling=1.0)
 
     # Reconstruction space for imaging object, RayTransform operator, Filtered back-projection operator
@@ -118,7 +118,7 @@ class Projection_ConeBeam(nn.Module):
     def forward(self, x):
         x = self.trafo(x)
         # x = x / self.reso
-        x = x / self.param.param['voxelSize']
+        # x = x / self.param.param['voxelSize']
 
         return x
 
