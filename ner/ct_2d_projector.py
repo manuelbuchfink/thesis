@@ -25,15 +25,15 @@ class Initialization_FanBeam:
         self.image_height = image_height
 
 
-        self.reso = 512. / np.max((self.image_width, 1)) # avoid div by zero
+        #self.reso = 512. / np.max((self.image_width, 1)) # avoid div by zero
 
         ## Imaging object (reconstruction objective) with object center as origin
         self.param['nx'] = self.image_width
         self.param['ny'] = self.image_height
         self.param['nh'] = proj_size
 
-        self.param['sx'] = self.param['nx'] * self.reso
-        self.param['sy'] = self.param['ny'] * self.reso
+        self.param['sx'] = self.param['nx'] #* self.reso
+        self.param['sy'] = self.param['ny'] #* self.reso
 
         ## Projection view angles (ray directions)
         self.param['start_angle'] = start_angle            # 0
@@ -46,15 +46,15 @@ class Initialization_FanBeam:
         '''
         dde = source_to_detector - source_to_isocenter = 1085,6 - 595 = 490,6
         '''
-        self.param['dde'] = 490.6 * self.reso # distance between origin and detector center (assume in x axis)
-        self.param['dso'] = 595 * self.reso # distance between origin and source (assume in x axis)
+        self.param['dde'] = 490.6 #* self.reso # distance between origin and detector center (assume in x axis)
+        self.param['dso'] = 595 #* self.reso # distance between origin and source (assume in x axis)
 
 def build_fanbeam_geometry(param):
     # Reconstruction space:
     reco_space = odl.uniform_discr(min_pt=[-param.param['sx'] / 2.0, -param.param['sy'] / 2.0],
                                     max_pt=[param.param['sx'] / 2.0, param.param['sy'] / 2.0],
                                     shape=[param.param['nx'], param.param['ny']],
-                                    dtype='float32')
+                                    dtype='float16')
 
     angle_partition = odl.uniform_partition(min_pt=param.param['start_angle'],
                                             max_pt=param.param['end_angle'],
@@ -88,7 +88,7 @@ class Projection_FanBeam(nn.Module):
     def __init__(self, param):
         super(Projection_FanBeam, self).__init__()
         self.param = param
-        self.reso = param.reso
+        #self.reso = param.reso
 
         # RayTransform operator
         reco_space, ray_trafo, FBPOper = build_fanbeam_geometry(self.param)
@@ -100,7 +100,7 @@ class Projection_FanBeam(nn.Module):
 
     def forward(self, x):
         x = self.trafo(x)
-        x = x / self.reso
+        x = x #/ self.reso
         return x
 
     def back_projection(self, x):

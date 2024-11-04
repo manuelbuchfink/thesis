@@ -6,15 +6,12 @@ with Prior Embedding for Sparsely Sampled
 Image Reconstruction
 Liyue Shen, John Pauly, Lei Xing
 '''
-import sys
 import os
 import argparse
 import shutil
 import gc
 import time
 import warnings
-import numpy as np
-import h5py # pylint: disable=import-error
 
 from utils import get_config, get_sub_folder, save_volume
 from ct_3d_projector import ConeBeam3DProjector
@@ -23,8 +20,11 @@ import torch # pylint: disable=import-error
 import torch.backends.cudnn as cudnn # pylint: disable=import-error
 import torch.nn.functional as F # pylint: disable=import-error
 
-sys.path.append('zhome/buchfiml/miniconda3/envs/odl/lib/python3.11/site-packages')
-sys.path.append(os.getcwd())
+from skimage.metrics import structural_similarity as compare_ssim # pylint: disable=import-error
+from skimage.metrics import mean_squared_error  as mse # pylint: disable=import-error
+from skimage.metrics import peak_signal_noise_ratio as psnr
+from skimage.measure import profile_line
+import matplotlib.pyplot as plt
 warnings.filterwarnings("ignore")
 start = time.time()
 
@@ -68,18 +68,19 @@ for i in range(4):
 
     prior_volume = torch.load(os.path.join(image_directory, f'prior_volume_{i}.pt'))
     prior_volume = prior_volume.squeeze()
-    prior_volume = torch.tensor(prior_volume, dtype=torch.float32)[None, ...]
-    prior_volume = F.interpolate(torch.tensor(prior_volume, dtype=torch.float32), size=(512, 512), mode='bilinear', align_corners=False)
+    prior_volume = torch.tensor(prior_volume, dtype=torch.float16)[None, ...]
     priors.append(prior_volume.squeeze(0))
 
 prior_volume  = torch.cat(priors, 0).unsqueeze(0)
 
+image = torch.load(os.path.join(image_directory, f'image.pt')).squeeze().cpu().float().detach().numpy()
+
 fbp_volume = torch.load(os.path.join(image_directory, f'fbp_volume.pt'))
 fbp_volume = fbp_volume.squeeze()
-fbp_volume = torch.tensor(fbp_volume, dtype=torch.float32)[None, ...]
+fbp_volume = torch.tensor(fbp_volume, dtype=torch.float16)[None, ...]
 
-ct_projector_full_view = ConeBeam3DProjector(config['fbp_img_size'], proj_size=config['proj_size'], num_proj=512)
-ct_projector_sparse_view = ConeBeam3DProjector(config['fbp_img_size'], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+ct_projector_full_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, num_proj=512)
+ct_projector_sparse_view = ConeBeam3DProjector(fbp_volume.squeeze().shape, num_proj=config['num_proj_sparse_view'])
 
 prior_volume = prior_volume.unsqueeze(4)
 
@@ -93,13 +94,18 @@ streak_volume = (fbp_prior_sparse_view - fbp_prior_full_view).unsqueeze(1).trans
 
 corrected_volume = (fbp_volume.unsqueeze(4) - streak_volume).squeeze().cpu().detach().numpy()
 
-fbp_prior_full_view = fbp_prior_full_view.squeeze().cpu().detach().numpy()
-fbp_volume = fbp_volume.squeeze().cpu().detach().numpy()
-prior_volume = prior_volume.squeeze().cuda().cpu().detach().numpy()
-streak_volume = streak_volume.squeeze().cuda().cpu().detach().numpy()
+fbp_prior_full_view = fbp_prior_full_view.squeeze().cpu().float().detach().numpy()
+fbp_volume = fbp_volume.squeeze().cpu().float().detach().numpy()
+prior_volume = prior_volume.squeeze().cuda().cpu().float().detach().numpy()
+streak_volume = streak_volume.squeeze().cuda().cpu().float().detach().numpy()
 
 #save_volume(fbp_prior_full_view, image_directory, config, "fbp_prior_full_view")
 save_volume(fbp_volume, image_directory, config, "fbp_volume")
 save_volume(corrected_volume, image_directory, config, "corrected_volume")
 save_volume(prior_volume, image_directory, config, "prior_volume")
 save_volume(streak_volume, image_directory, config, "streak_volume")
+
+test_mse = mse(image, corrected_volume)
+test_ssim = compare_ssim(image, corrected_volume, axis=-1, data_range=1.0)
+test_psnr = psnr(image, corrected_volume, data_range=1.0)
+print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}")

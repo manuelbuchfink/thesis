@@ -25,7 +25,7 @@ import torch.nn.functional as F
 
 from ct_2d_projector import FanBeam2DProjector
 from networks import Positional_Encoder, FFN
-from data import ImageDataset_2D_hdf5_canny, ImageDataset_2D_hdf5
+from data import ImageDataset_2D_hdf5_canny
 from utils import get_config, get_sub_folder, get_data_loader_hdf5_canny, reshape_tensor, correct_image_slice, get_image_pads, reshape_model_weights, save_image
 
 from skimage.metrics import structural_similarity as compare_ssim # pylint: disable=import-error

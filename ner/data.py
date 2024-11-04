@@ -137,14 +137,15 @@ class ImageDataset_3D_hdf5(Dataset):
         image = h5py.File(img_path, 'r')           # list(image.keys()) = ['Tiles'], ['Volume']
         image = image['Volume']                    # (512,512,512) = [depth, height, width]
 
-        self.img_dim = torch.tensor(image, dtype=torch.float16).shape
         image = torch.tensor(image, dtype=torch.float16)     # [B, C, H, W]
+
+        self.img_dim = image.squeeze().shape
 
         # Scaling normalization
         image[image < 0] = 0
         image /= torch.max(image)                                       # [B, C, H, W], [0, 1]
-
-        self.img = image[None, ...].permute(1, 2, 3, 0)                 # [C, H, W, 1]
+        print(f"imageshape {self.img_dim}")
+        self.img = image.unsqueeze(3)                 # [C, H, W, 1]
         display_tensor_stats(self.img)
 
 

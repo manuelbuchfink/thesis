@@ -79,7 +79,7 @@ for it, (grid, image) in enumerate(data_loader):
     fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 4)                                          # [1, h, w, 1]
     fbp_recon = torch.tensor(fbp_recon, dtype=torch.float16)                                    # [B, C, H, W]
     fbp_volume = torch.tensor(fbp_recon, dtype=torch.float16)
-    line_proj = profile_line(projections.squeeze().float().squeeze().cpu().detach().numpy()[64,:,:], (row_nr,column_start), (row_nr,column_end), 1)
+    line_proj = profile_line(projections.squeeze().float().squeeze().cpu().detach().numpy()[int(config['num_proj_sparse_view']/2),:,:], (row_nr,column_start), (row_nr,column_end), 1)
     line_fbp = profile_line(fbp_recon.squeeze().float().squeeze().cpu().detach().numpy()[slice_nr,:,:], (row_nr,column_start), (row_nr,column_end), 1)
     plt.plot(line_image)
     #plt.plot(line_proj)
