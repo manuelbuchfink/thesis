@@ -9,7 +9,8 @@ import torchvision.transforms as T
 
 from torch.utils.data import DataLoader
 from skimage.metrics import structural_similarity as compare_ssim
-
+# img_ref, img_dist are two images of the same size.
+from vif_utils import vif
 def get_config(config):
     with open(config, 'r') as stream:
         return yaml.load(stream, Loader=yaml.Loader)
@@ -30,11 +31,8 @@ def get_sub_folder(output_directory):
     checkpoint_directory = os.path.join(output_directory, 'checkpoints')
 
     return checkpoint_directory, image_directory
-def get_data_loader_hdf5(dataset, batch_size):
 
-    loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
-    return loader
-def get_data_loader_hdf5_canny(dataset, batch_size):
+def get_data_loader_hdf5(dataset, batch_size):
 
     loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
     return loader
@@ -75,6 +73,21 @@ def get_image_pads(image_size, config):
 
     return [fbp_pad_rt, fbp_pad_rb, fbp_pad_cl, fbp_pad_cr]
 
+def compute_vif(ground_truth, corrected_image):
+    '''
+    Visual Information Fidelity of two volumes
+    '''
+    avg_vif = 0
+
+    slices = int(ground_truth.squeeze().shape[0])
+    print(f"slices {slices} ground meat {ground_truth.shape} the other {corrected_image.shape}")
+
+    ground_truth = ground_truth.squeeze().cpu().detach().numpy()
+    corrected_image = corrected_image.squeeze().cpu().detach().numpy()
+    for i in range(0, slices, 1):
+        avg_vif += vif(ground_truth[i], corrected_image[i])
+
+    return avg_vif / slices
 
 def reshape_model_weights(image_height, image_width, config, checkpoint_directory, id):
         '''

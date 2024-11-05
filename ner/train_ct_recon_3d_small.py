@@ -14,9 +14,10 @@ import gc
 import time
 import warnings
 
+
 from networks import Positional_Encoder_3D, FFN_3D
 from ct_3d_projector import ConeBeam3DProjector
-from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_volume, save_image_2d
+from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, save_volume, save_image_2d, compute_vif
 from data import ImageDataset_3D_hdf5
 
 import torch # pylint: disable=import-error
@@ -246,7 +247,7 @@ for it, (grid, image) in enumerate(data_loader):
 
     plt.savefig(os.path.join(image_directory,f'line_profile_slice_{slice_nr}_row_{row_nr}_columns_[{column_start}, {column_end}]_iterations_{max_iter}.png'), bbox_inches='tight')
     plt.show()
-
+    test_vif = compute_vif(image, corrected_volume)
     difference_volume = difference_volume.squeeze().cpu().detach().numpy()
     streak_original = streak_original.squeeze().cpu().detach().numpy()
     streak_difference = streak_difference.squeeze().cpu().detach().numpy()
@@ -262,9 +263,10 @@ for it, (grid, image) in enumerate(data_loader):
     test_ssim = compare_ssim(image, corrected_volume, axis=-1, data_range=1.0)
     test_psnr = psnr(image, corrected_volume, data_range=1.0)
 
-    print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}")
-    # save_volume(fbp_volume, image_directory, config, "fbp_volume")
-    # save_volume(corrected_volume, image_directory, config, "corrected_volume")
+    print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}, VIF: {test_vif}")
+
+    save_volume(fbp_volume, image_directory, config, "fbp_volume")
+    save_volume(corrected_volume, image_directory, config, "corrected_volume")
     # save_volume(prior_volume, image_directory, config, "prior_volume")
     # save_volume(streak_volume, image_directory, config, "streak_volume")
     # save_volume(fbp_prior_full_view, image_directory, config, "fbp_prior_full_view")

@@ -7,7 +7,7 @@ from utils import get_config, save_image
 
 from skimage.feature import canny
 from skimage.filters import sobel, gaussian
-from ct_2d_projector import FanBeam2DProjector
+
 
 def display_tensor_stats(tensor):
     shape, vmin, vmax, vmean, vstd = tensor.shape, tensor.min(), tensor.max(), torch.mean(tensor), torch.std(tensor)
@@ -52,7 +52,7 @@ class ImageDataset_2D_sparsify(Dataset):
         num_slices = image.shape[0]
 
         self.slices = [None] * num_slices
-
+        self.grids = [None] * num_slices
         for i in range(num_slices):
 
             #split image into N evenly sized chunks
@@ -66,9 +66,10 @@ class ImageDataset_2D_sparsify(Dataset):
             self.slices[i] = np.nan_to_num(self.slices[i])
 
             self.slices[i] = torch.tensor(self.slices[i], dtype=torch.float32)[:, :, None] # [h, w, 1]
+            self.grids[i] = (create_grid(*self.img_dim))
 
     def __getitem__(self, idx):
-        return  self.slices[idx]              #return data tuple
+        return  self.grids[idx], self.slices[idx]              #return data tuple
 
     def __len__(self):
         return len(self.slices) # iterations
@@ -127,6 +128,62 @@ class ImageDataset_2D_hdf5_canny(Dataset):
 
     def __len__(self):
         return len(self.slices) # iterations
+
+class ImageDataset_2D_hdf5_canny_baseline(Dataset):
+    def __init__(self, img_path, parser):
+        #read hdf5 image
+        image = h5py.File(img_path, 'r')           # list(image.keys()) = ['Tiles'], ['Volume']
+        image = image['Volume']                    # (512,512,512) = [depth, height, width]
+
+        opts = parser.parse_args()
+        config = get_config(opts.config)
+
+        print(f"vol shape {image}")
+        self.img_dim = (image.shape[2], image.shape[1])
+        num_slices = image.shape[0]
+
+        self.slices = [None] * num_slices
+        self.grids = [None] * num_slices
+        self.img_dims = [None] * num_slices
+
+        for i in range(num_slices):
+
+            #split image into N evenly sized chunks
+            self.slices[i] = image[i,:,:]           # (512,512) = [h, w]
+
+            # Interpolate image to predefined size in case of smaller img size
+            self.slices[i] = cv2.resize(self.slices[i], self.img_dim[::-1], interpolation=cv2.INTER_LINEAR)
+
+            # Scaling normalization -> [0, 1]
+            self.slices[i] = self.slices[i] / np.max(self.slices[i])
+            self.slices[i] = np.nan_to_num(self.slices[i])
+
+            # #Canny Edge Detector to rid streak artifacts
+            canny_image = self.slices[i]
+            canny_image = canny(canny_image, sigma=4) # canny edge detector
+
+            bounding_box = bounding_box_2D(canny_image) # compute bounding box
+
+            # make sure that bounding box borders are even numbered
+            rmin = bounding_box[0] - 1 if bounding_box[0] % 2 != 0 and bounding_box[0] > 0 else bounding_box[0]
+            rmax = bounding_box[1] + 1 if bounding_box[1] % 2 != 0 else bounding_box[1]
+            cmin = bounding_box[2] - 1 if bounding_box[2] % 2 != 0 and bounding_box[2] > 0 else bounding_box[2]
+            cmax = bounding_box[3] + 1 if bounding_box[3] % 2 != 0 else bounding_box[3]
+
+            self.slices[i] = torch.tensor(self.slices[i], dtype=torch.float32)[:, :, None] # [h, w, 1]
+            self.slices[i] = self.slices[i][rmin:rmax, cmin:cmax, :]
+
+            self.img_dims[i] =  (rmax, rmin, cmax, cmin)                                   #[h_new, w_new]
+            img_dim = (self.img_dims[i][0] - self.img_dims[i][1], self.img_dims[i][2] - self.img_dims[i][3])
+
+            self.grids[i] = (create_grid(*img_dim))
+
+    def __getitem__(self, idx):
+        return self.grids[idx] , self.slices[idx] , self.img_dims[idx]               #return data tuple
+
+    def __len__(self):
+        return len(self.slices) # iterations
+
 
 
 

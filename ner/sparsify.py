@@ -23,7 +23,7 @@ import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 
 
-from ct_2d_projector import FanBeam2DProjector
+from ner.FanBeam.ct_2d_projector import FanBeam2DProjector
 
 from data import ImageDataset_2D_hdf5_canny, ImageDataset_2D_sparsify
 from utils import get_config, get_sub_folder, get_data_loader_hdf5_canny, save_volume

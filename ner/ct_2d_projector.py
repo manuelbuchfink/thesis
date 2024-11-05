@@ -54,7 +54,7 @@ def build_fanbeam_geometry(param):
     reco_space = odl.uniform_discr(min_pt=[-param.param['sx'] / 2.0, -param.param['sy'] / 2.0],
                                     max_pt=[param.param['sx'] / 2.0, param.param['sy'] / 2.0],
                                     shape=[param.param['nx'], param.param['ny']],
-                                    dtype='float16')
+                                    dtype='float32')
 
     angle_partition = odl.uniform_partition(min_pt=param.param['start_angle'],
                                             max_pt=param.param['end_angle'],
