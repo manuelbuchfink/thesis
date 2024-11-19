@@ -135,9 +135,9 @@ for it, (grid, image) in enumerate(data_loader):
             model.eval()
             with torch.no_grad():
                 fbp_prior = ct_projector_sparse_view.backward_project(train_projections).unsqueeze(1).transpose(1, 4)
-                test_ssim = compare_ssim(fbp_prior.transpose(1,4).squeeze().cpu().numpy(), fbp_recon.transpose(1,4).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
-                test_mse = mse(train_projections.squeeze().cpu().numpy(), projections.squeeze().cpu().numpy())
-                test_psnr = psnr(train_projections.squeeze().cpu().numpy(), projections.squeeze().cpu().numpy(), data_range=1.0)
+                test_ssim = compare_ssim(fbp_prior.transpose(1,4).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,4).squeeze().cpu().detach().numpy(), multichannel=True, data_range=1.0)
+                test_mse = mse(fbp_prior.transpose(1,4).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,4).squeeze().cpu().detach().numpy())
+                test_psnr = psnr(fbp_prior.transpose(1,4).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,4).squeeze().cpu().detach().numpy(), data_range=1.0)
 
             end = time.time()
 

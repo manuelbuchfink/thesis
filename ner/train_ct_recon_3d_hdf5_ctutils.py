@@ -118,8 +118,8 @@ for it, (grid, image) in enumerate(data_loader):
         with torch.cuda.amp.autocast(dtype=torch.float16):
             train_output = model(train_embedding)                                           # train model on grid: ([1, x, y, embedding_size]) > [1, x, y, 1]
             train_projections = ct_projector_sparse_view.forward_project(train_output.transpose(1, 4).squeeze(1)).to("cuda")      # evaluate by forward projecting
-            train_loss = (0.5 * loss_fn(train_output.to("cuda"), fbp_recon.to("cuda")))     # compare forward projected grid with sparse view projection
-            #train_loss = (0.5 * loss_fn(train_projections.to("cuda"), projections.to("cuda")))     # compare forward projected grid with sparse view projection
+            #train_loss = (0.5 * loss_fn(train_output.to("cuda"), fbp_recon.to("cuda")))     # compare forward projected grid with sparse view projection
+            train_loss = (0.5 * loss_fn(train_projections.to("cuda"), projections.to("cuda")))     # compare forward projected grid with sparse view projection
 
         scaler.scale(fbp_recon)
         scaler.scale(train_projections)
@@ -138,7 +138,7 @@ for it, (grid, image) in enumerate(data_loader):
             line_fbp = profile_line(fbp_recon.squeeze().float().squeeze().cpu().detach().numpy()[slice_nr,:,:], (row_nr,column_start), (row_nr,column_end), 1)
 
             plt.plot(line_original)
-            plt.plot(line_prior)
+            plt.plot(line_prior, linewidth=2, linestyle=(0, (1, 1)))
             plt.plot(line_fbp)
             plt.legend(['ground truth', 'train_output', 'fbp'], loc='upper left')
 
@@ -153,9 +153,9 @@ for it, (grid, image) in enumerate(data_loader):
             model.eval()
             with torch.no_grad():
                 fbp_prior = ct_projector_sparse_view.backward_project(train_projections).unsqueeze(1).transpose(1, 4)
-                test_ssim = compare_ssim(fbp_prior.transpose(1,4).squeeze().cpu().numpy(), fbp_recon.transpose(1,4).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
-                test_mse = mse(train_projections.squeeze().cpu().numpy(), projections.squeeze().cpu().numpy())
-                test_psnr = psnr(train_projections.squeeze().cpu().numpy(), projections.squeeze().cpu().numpy(), data_range=1.0)
+                test_ssim = compare_ssim(fbp_prior.transpose(1,4).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,4).squeeze().cpu().detach().numpy(), multichannel=True, data_range=1.0)
+                test_mse = mse(fbp_prior.transpose(1,4).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,4).squeeze().cpu().detach().numpy())
+                test_psnr = psnr(fbp_prior.transpose(1,4).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,4).squeeze().cpu().detach().numpy(), data_range=1.0)
 
             end = time.time()
 
@@ -237,7 +237,7 @@ for it, (grid, image) in enumerate(data_loader):
     # print(f"prior line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_prior}")
     # print(f"difference line slice {slice_nr}, row {row_nr}, columns ({column_start, column_end}): {line_original-line_prior}")
     plt.plot(line_original)
-    plt.plot(line_prior)
+    plt.plot(line_prior, linewidth=2, linestyle=(0, (1, 1)))
 
     plt.legend(['ground truth', 'train_output'], loc='upper left')
 

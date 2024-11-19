@@ -1,7 +1,5 @@
 import numpy as np
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import odl
 from odl.contrib import torch as odl_torch
 
@@ -28,9 +26,6 @@ class Initialization_ConeBeam_modi:
                 'InitialAngle':0
         }
         '''
-
-
-
         self.param = {}
         self.image_size = image_size
         self.param['voxelSize'] = cb_para['voxelSize']
@@ -55,15 +50,11 @@ class Initialization_ConeBeam_modi:
         # magnification m = SDD / SOD = 1281.909 / 646.0335 = 1.98427635719
         # pixel size = voxel size * magnifiactaion = 0.064 * 1.98427635719 = 0.12699368686
 
-        # self.param['nh'] =cb_para['detector_width']   # wrong code defination from nerp
-        # self.param['nw'] = cb_para['detector_height']
         self.param['sh'] = self.param['nh'] * cb_para['pixelSize']    #size of projection height 65
         self.param['sw'] = self.param['nw'] * cb_para['pixelSize']    # biggest width 65
         self.param['dde'] = cb_para['SDD'] - cb_para['SOD'] # distance between origin and detector center (assume in x axis)
         self.param['dso'] = cb_para['SOD'] # distance between origin and source (assume in x axis)
 
-        #print(cb_para['pixelSize'],cb_para['detector_width'] ,self.param['sh'])
-        #print(cb_para['voxelSize'],self.param['nz'],self.param['sz'])
 
 
 def build_conebeam_gemotry(param):
@@ -117,9 +108,6 @@ class Projection_ConeBeam(nn.Module):
 
     def forward(self, x):
         x = self.trafo(x)
-        # x = x / self.reso
-        # x = x / self.param.param['voxelSize']
-
         return x
 
     def back_projection(self, x):
@@ -140,6 +128,8 @@ class FBP_ConeBeam(nn.Module):
 
     def forward(self, x):
         x = self.fbp(x)
+        x[x < 0] = 0 #normalize by cutting off negative values
+        x[x > 1] = 1 #normalize by cutting of peaks that exceed the datarange
         return x
 
     def filter_function(self, x):
@@ -148,19 +138,6 @@ class FBP_ConeBeam(nn.Module):
 
 
 class ConeBeam3DProjector():
-    # def __init__(self, image_size, proj_size, num_proj):
-        # self.image_size = image_size
-        # self.proj_size = proj_size
-        # self.num_proj = num_proj
-        # self.start_angle = np.pi / float(self.num_proj * 2.0) * (self.num_proj - 1.0)
-        # self.raw_reso = 0.7
-
-        # Initialize required parameters for image, view, detector
-        # geo_param = Initialization_ConeBeam(image_size=self.image_size,
-        #                                     num_proj=self.num_proj,
-        #                                     start_angle=self.start_angle,
-        #                                     proj_size=self.proj_size,
-        #                                     raw_reso=self.raw_reso)
     def __init__(self, image_size, cb_para):
         geo_param = Initialization_ConeBeam_modi(image_size=image_size,
                                                  cb_para=cb_para)

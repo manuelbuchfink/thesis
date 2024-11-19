@@ -20,7 +20,7 @@ import torch.backends.cudnn as cudnn
 from ct_2d_projector_baseline import FanBeam2DProjector
 from networks import Positional_Encoder_base, FFN
 from data import ImageDataset_2D_sparsify
-from utils import get_config, get_data_loader_hdf5, save_volume, reshape_model_weights, prepare_sub_folder, correct_image_slice, get_image_pads
+from utils import get_config, get_data_loader_hdf5, save_volume, compute_vif, prepare_sub_folder
 
 from skimage.metrics import structural_similarity as compare_ssim # pylint: disable=import-error
 from skimage.metrics import mean_squared_error  as mse # pylint: disable=import-error
@@ -34,7 +34,6 @@ start = time.time()
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, default='', help='Path to the config file.')
 parser.add_argument('--output_path', type=str, default='.', help="outputs path")
-parser.add_argument('--id', type=str, default='.', help="id slice")
 
 # Load experiment setting
 opts = parser.parse_args()
@@ -70,19 +69,12 @@ corrected_images = []
 prior_images = []
 fbp_images = []
 images = []
-pretrain = False
-skips = 0
-total_its = 0
-serial_skips = 0
-trained_slices = 0
-max_series = 0
-zeros = 0
-previous_projection = None
 for it, (grid, image) in enumerate(data_loader):
     #if it > 245 and it < 250:
+        n = config['down_sample_factor']
         # Input coordinates (h,w) grid and target image
-        grid = grid.cuda()      # [1, h, w, 2], value range = [0, 1]
-        image = image.cuda()    # [1, h, w, 1], value range = [0, 1]
+        grid = grid.squeeze()[::n,::n].unsqueeze(0).unsqueeze(3).cuda()      # [1, h, w, 2], value range = [0, 1]
+        image = image.squeeze()[::n,::n].unsqueeze(0).unsqueeze(3).cuda()    # [1, h, w, 1], value range = [0, 1]
 
         ct_projector_full_view = FanBeam2DProjector(image.squeeze().shape[1], image_width=image.squeeze().shape[0], proj_size=config['proj_size'], num_proj=config['num_proj_full_view'])
         ct_projector_sparse_view = FanBeam2DProjector(image_height=image.squeeze().shape[1], image_width=image.squeeze().shape[0], proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
@@ -100,35 +92,6 @@ for it, (grid, image) in enumerate(data_loader):
         # Setup model
         model = FFN(config['net'], int(image.squeeze().shape[1] + image.squeeze().shape[0]))
 
-        '''
-        Check if sequential slices are similar enough in order to skip training for one step and reuse the previous prior to compute the corrected image
-        '''
-        if pretrain:
-            fbp_prev = ct_projector_sparse_view.backward_project(previous_projection).unsqueeze(1).transpose(1, 3).to(torch.float16)
-            sequential_ssim = compare_ssim(fbp_prev.transpose(1,3).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
-            print(f"Sequential SSIM = {sequential_ssim}")
-
-            if sequential_ssim > config['slice_skip_threshold']:
-                print(f"SSIM passed, skipping training for slice nr. {it + 1}")
-
-                skips+=1
-                serial_skips+=1
-                total_its+=1
-
-                corrected_image, prior, previous_projection = correct_image_slice(train_output, projectors, fbp_recon, train_projections)
-
-                corrected_images.append(corrected_image)
-                prior_images.append(prior)
-                fbp_images.append(fbp_recon)
-                images.append(image)
-
-                continue
-            else:
-                max_series = np.maximum(max_series, serial_skips)
-                trained_slices+=1
-                serial_skips=0
-
-
         model.cuda()
         model.train()
 
@@ -145,7 +108,7 @@ for it, (grid, image) in enumerate(data_loader):
 
             train_output = model(train_embedding)  # train model on grid: ([1, x, y, embedding_size]) > [1, x, y, 1]
 
-            train_projections = ct_projector_sparse_view.forward_project(train_output.transpose(1, 3).squeeze(1)).to("cuda")      # evaluate by forward projecting
+            train_projections = ct_projector_sparse_view.forward_project(train_output.transpose(1, 3).squeeze(1).squeeze(-1)).to("cuda")      # evaluate by forward projecting
             train_loss = (0.5 * loss_fn(train_projections.to("cuda"), projections.to("cuda")))                                    # compare forward projected grid with sparse view projection
             #train_loss = (0.5 * loss_fn(train_output.to("cuda"), fbp_recon.to("cuda")))     # compare forward projected grid with sparse view projection
 
@@ -157,7 +120,6 @@ for it, (grid, image) in enumerate(data_loader):
                         test_loss = 0.5 * loss_fn(train_output.to("cuda"), image.to("cuda")) # compare grid with test image
                         test_psnr = - 10 * torch.log10(2 * test_loss).item()
                         test_loss = test_loss.item()
-
                         fbp_prior = ct_projector_sparse_view.backward_project(train_projections).unsqueeze(1).transpose(1, 3)
                         test_ssim = compare_ssim(fbp_prior.transpose(1,3).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy(), multichannel=True, data_range=1.0)
                         test_mse = mse(fbp_prior.transpose(1,3).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy())
@@ -185,10 +147,10 @@ for it, (grid, image) in enumerate(data_loader):
 
         prior = train_output
 
-        projs_prior_full_view = projectors[0].forward_project(prior.transpose(1, 3).squeeze(1))
+        projs_prior_full_view = projectors[0].forward_project(prior.transpose(1, 3).squeeze(1).squeeze(-1))
         fbp_prior_full_view = projectors[0].backward_project(projs_prior_full_view)
 
-        projs_prior_sparse_view = projectors[1].forward_project(prior.transpose(1, 3).squeeze(1))
+        projs_prior_sparse_view = projectors[1].forward_project(prior.transpose(1, 3).squeeze(1).squeeze(-1))
         fbp_prior_sparse_view = projectors[1].backward_project(projs_prior_sparse_view)
 
         streak_prior = (fbp_prior_sparse_view - fbp_prior_full_view).unsqueeze(1).transpose(1, 3)
@@ -206,16 +168,15 @@ for it, (grid, image) in enumerate(data_loader):
         fbp_images.append(fbp_recon)
         images.append(image)
 
-        print(f"Nr. of skips: {skips}")
-        pretrain = True
-        total_its+=1
-        previous_projection = train_projections
+
 
 images = torch.cat(images, 0)
 corrected_images = torch.cat(corrected_images, 0)
 prior_images = torch.cat(prior_images, 0).squeeze().cpu().detach().numpy()
 fbp_images = torch.cat(fbp_images, 0).squeeze().cpu().detach().numpy()
-print(f"Shapes final: {corrected_images.shape}")
+
+
+#test_vif = compute_vif(images, corrected_images)
 
 corrected_images = corrected_images.squeeze().cpu().detach().numpy()
 images = images.squeeze().cpu().detach().numpy()
@@ -223,10 +184,10 @@ test_mse = mse(images, corrected_images)
 test_ssim = compare_ssim(images, corrected_images, axis=-1, data_range=1.0)
 test_psnr = psnr(images, corrected_images, data_range=1.0)
 
-print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}, Time: {(end - start) / 60}, Iterations {total_its}")
-print(f"Trained slices: {trained_slices}, Max Skip series: {max_series}, Skips: {skips}")
-save_volume(fbp_images, image_directory, config, "fbp_volume")
-save_volume(corrected_images, image_directory, config, "corrected_volume")
-save_volume(prior_images, image_directory, config, "prior_volume")
+print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}")#, VIF: {test_vif}")
+
+# save_volume(fbp_images, image_directory, config, "fbp_volume")
+# save_volume(corrected_images, image_directory, config, "corrected_volume")
+# save_volume(prior_images, image_directory, config, "prior_volume")
 with open('resultmetrics', 'a+')as file:
     file.write(f"{test_ssim}, {test_psnr}, {(end - start) / 60}, ")

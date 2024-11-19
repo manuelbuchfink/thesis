@@ -1,10 +1,11 @@
 import cv2
+import os
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 import h5py
-from utils import get_config, save_image
-
+from utils import get_config, save_image_2d
+import pydicom as dicom
 from skimage.feature import canny
 from skimage.filters import sobel, gaussian
 
@@ -39,6 +40,30 @@ def bounding_box_2D(img):   # function to compute minimal bounding box for one s
         cmin, cmax = np.where(cols)[0][[0, -1]]
 
     return rmin, rmax, cmin, cmax
+
+class ImageDataset_2D_dicom(Dataset):
+
+    def __init__(self, img_path, img_dim):
+        self.img_dim = (img_dim, img_dim) # [h, w]
+
+        #read dicom image
+        image = dicom.dcmread(img_path).pixel_array
+
+        # Interpolate image to predefined size in case of smaller img size
+        image = cv2.resize(image, self.img_dim[::-1], interpolation=cv2.INTER_LINEAR)
+
+        # Scaling normalization -> [0, 1]
+        image = image / np.max(image)
+
+        self.img = torch.tensor(image, dtype=torch.float32)[:, :, None] # [h, w, 1]
+        display_tensor_stats(self.img)
+
+    def __getitem__(self, idx):
+        grid = create_grid(*self.img_dim)   # [h, w, 2]
+        return grid, self.img               #return data tuple
+
+    def __len__(self):
+        return 1 # iterations
 
 class ImageDataset_2D_sparsify(Dataset):
     def __init__(self, img_path, parser):
@@ -75,15 +100,13 @@ class ImageDataset_2D_sparsify(Dataset):
         return len(self.slices) # iterations
 
 class ImageDataset_2D_hdf5_canny(Dataset):
-    def __init__(self, img_path, parser):
+    def __init__(self, img_path, parser, image_directory):
         #read hdf5 image
-        image = h5py.File(img_path, 'r')           # list(image.keys()) = ['Tiles'], ['Volume']
-        image = image['Volume']                    # (512,512,512) = [depth, height, width]
 
         opts = parser.parse_args()
         config = get_config(opts.config)
-
-        print(f"vol shape {image}")
+        image = torch.load(os.path.join(image_directory, f"fbp_volume.pt")).cuda()
+        print(f"vol shape {image.shape}")
         self.img_dim = (image.shape[2], image.shape[1])
         num_slices = image.shape[0]
 
@@ -130,15 +153,15 @@ class ImageDataset_2D_hdf5_canny(Dataset):
         return len(self.slices) # iterations
 
 class ImageDataset_2D_hdf5_canny_baseline(Dataset):
-    def __init__(self, img_path, parser):
-        #read hdf5 image
-        image = h5py.File(img_path, 'r')           # list(image.keys()) = ['Tiles'], ['Volume']
-        image = image['Volume']                    # (512,512,512) = [depth, height, width]
-
+    def __init__(self, img_path, parser, image_directory):
+        #read fbp volume
         opts = parser.parse_args()
         config = get_config(opts.config)
 
-        print(f"vol shape {image}")
+        image = torch.load(os.path.join(image_directory, f"fbp_volume.pt"))
+        print(f"vol shape {image.shape}")
+        image = image.squeeze().cpu().detach().numpy()
+
         self.img_dim = (image.shape[2], image.shape[1])
         num_slices = image.shape[0]
 
@@ -161,6 +184,8 @@ class ImageDataset_2D_hdf5_canny_baseline(Dataset):
             # #Canny Edge Detector to rid streak artifacts
             canny_image = self.slices[i]
             canny_image = canny(canny_image, sigma=4) # canny edge detector
+
+            save_image_2d(torch.tensor(canny_image).squeeze().float().unsqueeze(0).unsqueeze(3), os.path.join(image_directory, f"canny_image_{i}.png"))
 
             bounding_box = bounding_box_2D(canny_image) # compute bounding box
 

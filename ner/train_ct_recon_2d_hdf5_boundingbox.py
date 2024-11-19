@@ -18,10 +18,10 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 
-from ct_2d_projector import FanBeam2DProjector
+from ct_2d_projector_baseline import FanBeam2DProjector
 from networks import Positional_Encoder_base, FFN
 from data import ImageDataset_2D_hdf5_canny_baseline
-from utils import get_config, get_data_loader_hdf5, save_volume, compute_vif, prepare_sub_folder, get_image_pads
+from utils import get_config, get_data_loader_hdf5, save_volume, save_image_2d, compute_vif, prepare_sub_folder, get_image_pads
 
 from skimage.metrics import structural_similarity as compare_ssim # pylint: disable=import-error
 from skimage.metrics import mean_squared_error  as mse # pylint: disable=import-error
@@ -63,7 +63,7 @@ shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy c
 
 # Setup data loader
 print('Load volume: {}'.format(config['img_path']))
-dataset = ImageDataset_2D_hdf5_canny_baseline(config['img_path'], parser)
+dataset = ImageDataset_2D_hdf5_canny_baseline(config['img_path'], parser, image_directory)
 data_loader = get_data_loader_hdf5(dataset, batch_size=config['batch_size'])
 
 corrected_images = []
@@ -71,7 +71,7 @@ prior_images = []
 fbp_images = []
 images = []
 for it, (grid, image, image_size) in enumerate(data_loader):
-    if it > 248 and it < 250:
+    if it > 254 and it < 256:
         # Input coordinates (h,w) grid and target image
         grid = grid.cuda()      # [1, h, w, 2], value range = [0, 1]
         image = image.cuda()    # [1, h, w, 1], value range = [0, 1]
@@ -84,6 +84,17 @@ for it, (grid, image, image_size) in enumerate(data_loader):
         image_width = int(image_size[2][0] - image_size[3][0])
 
         pads = get_image_pads(image_size, config) # pads: rt, rb, cl,  cr
+        print(f"image height and width {image_height} {image_width}")
+
+        if image_height == 0 or image_width == 0: # skip emty images
+
+            skip_image = torch.zeros(1, 512, 512).cuda()
+            corrected_images.append(skip_image)
+            prior_images.append(skip_image)
+            fbp_images.append(skip_image)
+            images.append(skip_image)
+
+            continue
 
         ct_projector_full_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_full_view'])
         ct_projector_sparse_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
@@ -131,19 +142,28 @@ for it, (grid, image, image_size) in enumerate(data_loader):
                         test_loss = test_loss.item()
 
                         test_ssim = compare_ssim(train_output.transpose(1,3).squeeze().cpu().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+                        fbp_prior = ct_projector_sparse_view.backward_project(train_projections).unsqueeze(1).transpose(1, 3)
+                        test_ssim = compare_ssim(fbp_prior.transpose(1,3).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy(), multichannel=True, data_range=1.0)
+                        test_mse = mse(fbp_prior.transpose(1,3).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy())
+                        test_psnr = psnr(fbp_prior.transpose(1,3).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy(), data_range=1.0)
 
                     end = time.time()
 
-                    print("[Iteration: {}/{}] Test loss: {:.4g} | Test psnr: {:.4g} | Test ssim: {:.4g} | Time Elapsed {}".format(iterations + 1, max_iter, test_loss, test_psnr, test_ssim, (end - start)))
+                    print("[Slice Nr. {} Iteration: {}/{}] | FBP SSIM: {:.4g} | MSE {:.4g} | PSNR {:.4g} | Time Elapsed: {}".format(it + 1, iterations + 1, max_iter, test_ssim, test_mse, test_psnr, (end - start) / 60))
+
                 else:
                     model.eval()
                     with torch.no_grad():
                         fbp_prior = ct_projector_sparse_view.backward_project(train_projections).unsqueeze(1).transpose(1, 3)
                         test_ssim = compare_ssim(fbp_prior.transpose(1,3).squeeze().cpu().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
+                        fbp_prior = ct_projector_sparse_view.backward_project(train_projections).unsqueeze(1).transpose(1, 3)
+                        test_ssim = compare_ssim(fbp_prior.transpose(1,3).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy(), multichannel=True, data_range=1.0)
+                        test_mse = mse(fbp_prior.transpose(1,3).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy())
+                        test_psnr = psnr(fbp_prior.transpose(1,3).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy(), data_range=1.0)
 
                     end = time.time()
 
-                    print("[Slice Nr. {} Iteration: {}/{}] | FBP SSIM: {:.4g} | Time Elapsed: {}".format(it + 1, iterations + 1, max_iter, test_ssim, (end - start) / 60))
+                    print("[Slice Nr. {} Iteration: {}/{}] | FBP SSIM: {:.4g} | MSE {:.4g} | PSNR {:.4g} | Time Elapsed: {}".format(it + 1, iterations + 1, max_iter, test_ssim, test_mse, test_psnr, (end - start) / 60))
 
             train_loss.backward()
             optim.step()
@@ -164,19 +184,18 @@ for it, (grid, image, image_size) in enumerate(data_loader):
         diff_ssim_recon = compare_ssim(fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
         diff_ssim_train = compare_ssim(corrected_image.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
 
-        print(f"Diff SSIM TRAIN = {diff_ssim_train}, Diff SSIM RECON = {diff_ssim_recon}")
-        print(f"sadasd {corrected_image.shape} {prior.shape} {fbp_recon.shape}")
         corrected_image = F.pad(corrected_image.squeeze(), (pads[2],pads[3], pads[0],pads[1])).unsqueeze(0)
         prior = F.pad(prior.squeeze(), (pads[2],pads[3], pads[0],pads[1])).unsqueeze(0)
         fbp_recon = F.pad(fbp_recon.squeeze(), (pads[2],pads[3], pads[0],pads[1])).unsqueeze(0)
         image = F.pad(image.squeeze(), (pads[2],pads[3], pads[0],pads[1])).unsqueeze(0)
-        print(f"sadas222d {corrected_image.shape} {prior.shape} {fbp_recon.shape}")
 
+        save_image_2d(corrected_image.squeeze().float().unsqueeze(0).unsqueeze(3), os.path.join(image_directory, f"corrected_image_{it}.png"))
+        save_image_2d(fbp_recon.squeeze().float().unsqueeze(0).unsqueeze(3), os.path.join(image_directory, f"fbp_image_{it}.png"))
+        save_image_2d(prior.squeeze().float().unsqueeze(0).unsqueeze(3), os.path.join(image_directory, f"prior_image_{it}.png"))
         corrected_images.append(corrected_image)
         prior_images.append(prior)
         fbp_images.append(fbp_recon)
         images.append(image)
-
 
 images = torch.cat(images, 0)
 corrected_images = torch.cat(corrected_images, 0)
@@ -184,7 +203,7 @@ prior_images = torch.cat(prior_images, 0).squeeze().cpu().detach().numpy()
 fbp_images = torch.cat(fbp_images, 0).squeeze().cpu().detach().numpy()
 
 
-test_vif = compute_vif(images, corrected_images)
+#test_vif = compute_vif(images, corrected_images)
 
 corrected_images = corrected_images.squeeze().cpu().detach().numpy()
 images = images.squeeze().cpu().detach().numpy()
@@ -192,8 +211,10 @@ test_mse = mse(images, corrected_images)
 test_ssim = compare_ssim(images, corrected_images, axis=-1, data_range=1.0)
 test_psnr = psnr(images, corrected_images, data_range=1.0)
 
-print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}, VIF: {test_vif}")
+print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}")#, VIF: {test_vif}")
 
-save_volume(fbp_images, image_directory, config, "fbp_volume")
-save_volume(corrected_images, image_directory, config, "corrected_volume")
-save_volume(prior_images, image_directory, config, "prior_volume")
+# save_volume(fbp_images, image_directory, config, "fbp_volume")
+# save_volume(corrected_images, image_directory, config, "corrected_volume")
+# save_volume(prior_images, image_directory, config, "prior_volume")
+with open('resultmetrics', 'a+')as file:
+    file.write(f"{test_ssim}, {test_psnr}, {(end - start) / 60}, ")

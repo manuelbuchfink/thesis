@@ -19,6 +19,11 @@ import numpy as np
 
 import torch
 import torch.backends.cudnn as cudnn
+from utils import get_config, get_data_loader_hdf5, save_volume, compute_vif, prepare_sub_folder
+
+from skimage.metrics import structural_similarity as compare_ssim # pylint: disable=import-error
+from skimage.metrics import mean_squared_error  as mse # pylint: disable=import-error
+from skimage.metrics import peak_signal_noise_ratio as psnr
 
 
 from utils import get_config, get_sub_folder, save_image, save_volume
@@ -62,12 +67,34 @@ LOAD IMAGE SLICES INTO CORRECTED_IMAGES AND SPARSE_IMAGES FROM FILE
 
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
 corrected_images = []
-
-for i in range(1, len(os.listdir(image_directory)) + 1):
+prior_images = []
+fbp_images = []
+images = []
+for i in range(1, len(os.listdir(image_directory)) / 4 + 1):
     corrected_images.append(torch.load(os.path.join(image_directory, f'corrected_slice_{i}.pt')).cuda())
+    prior_images.append(torch.load(os.path.join(image_directory, f'prior_slice_{i}.pt')).cuda())
+    fbp_images.append(torch.load(os.path.join(image_directory, f'fbp_slice_{i}.pt')).cuda())
+    images.append(torch.load(os.path.join(image_directory, f'image_slice_{i}.pt')).cuda())
 
-corrected_images = torch.cat(corrected_images, 0).cpu().detach().numpy()
-save_volume(corrected_images, image_directory, config, "corrected_volume")
-#sparse_images = torch.cat(sparse_images, 0).squeeze()
-#print(f"total iterations: {total_its}")
+
+images = torch.cat(images, 0)
+corrected_images = torch.cat(corrected_images, 0)
+prior_images = torch.cat(prior_images, 0).squeeze().cpu().detach().numpy()
+fbp_images = torch.cat(fbp_images, 0).squeeze().cpu().detach().numpy()
+
+
+test_vif = compute_vif(images, corrected_images)
+
+corrected_images = corrected_images.squeeze().cpu().detach().numpy()
+images = images.squeeze().cpu().detach().numpy()
+test_mse = mse(images, corrected_images)
+test_ssim = compare_ssim(images, corrected_images, axis=-1, data_range=1.0)
+test_psnr = psnr(images, corrected_images, data_range=1.0)
+
+print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}, VIF: {test_vif}")
+
+# save_volume(fbp_images, image_directory, config, "fbp_volume")
+# save_volume(corrected_images, image_directory, config, "corrected_volume")
+# save_volume(prior_images, image_directory, config, "prior_volume")

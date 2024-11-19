@@ -52,15 +52,6 @@ def save_image(tensor, file_name):
     image_grid = vutils.make_grid(tensor, padding=0, normalize=True, scale_each=True)
     vutils.save_image(image_grid, file_name, nrow=1)
 
-def reshape_tensor(previous_image, image):
-    '''
-    image: [1, h, w, 1]
-    '''
-    batch, height, width, channel = image.shape
-    transform = T.Resize((height, width))                           # resize by interpolation (bilinear)
-    previous_image = transform(previous_image.permute(0, 3, 1, 2))  # ([1, h, w, 1]) -> [1, 1, h, w]
-    return previous_image.permute(0, 2, 3, 1)                       # ([1, 1, h, w]) -> [1, h, w, 1]
-
 def get_image_pads(image_size, config):
     '''
     rt: top of center  rb: bottom of center
@@ -88,6 +79,15 @@ def compute_vif(ground_truth, corrected_image):
         avg_vif += vif(ground_truth[i], corrected_image[i])
 
     return avg_vif / slices
+
+def reshape_tensor(previous_image, image):
+    '''
+    image: [1, h, w, 1]
+    '''
+    batch, height, width, channel = image.shape
+    transform = T.Resize((height, width))                           # resize by interpolation (bilinear)
+    previous_image = transform(previous_image.permute(0, 3, 1, 2))  # ([1, h, w, 1]) -> [1, 1, h, w]
+    return previous_image.permute(0, 2, 3, 1)                       # ([1, 1, h, w]) -> [1, h, w, 1]
 
 def reshape_model_weights(image_height, image_width, config, checkpoint_directory, id):
         '''
@@ -160,12 +160,6 @@ def correct_image_slice(skip, zeros, test_output, projectors, image, fbp_recon, 
 
     corrected_image = fbp_recon - streak_prior
 
-    diff_ssim_recon = compare_ssim(fbp_recon.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
-    diff_ssim_train = compare_ssim(corrected_image.transpose(1,3).squeeze().cpu().detach().numpy(), image.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
-
-
-    print(f"Diff SSIM TRAIN = {diff_ssim_train}, Diff SSIM RECON = {diff_ssim_recon}")
-    #print(f"avg ssim TRAIN: {avg_ssim_train /(it + 1 - zeros)}, avg ssim RECON: {avg_ssim_recon /(it + 1 - zeros)}")
 
     corrected_image_padded = F.pad(corrected_image, (0,0, pads[2],pads[3], pads[0],pads[1]))
     #save_image_2d(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
@@ -175,9 +169,9 @@ def correct_image_slice(skip, zeros, test_output, projectors, image, fbp_recon, 
     # prior_padded = F.pad(prior, (0,0, pads[2],pads[3], pads[0],pads[1]))
     # image_padded = F.pad(image, (0,0, pads[2],pads[3], pads[0],pads[1]))
 
-    # train_projections = train_projections.squeeze().unsqueeze(0)
-    # train_pad = int((config['img_size'] - config['num_proj_sparse_view']) / 2)
-    # train_projections_padded = F.pad(train_projections, (0,0, train_pad,train_pad)).unsqueeze(3)
+    train_projections = train_projections.squeeze().unsqueeze(0)
+    train_pad = int((config['img_size'] - config['num_proj_sparse_view']) / 2)
+    train_projections_padded = F.pad(train_projections, (0,0, train_pad,train_pad)).unsqueeze(3)
 
     # output_image =  torch.cat(((train_projections_padded / torch.max(train_projections_padded)), fbp_padded, prior_padded,  corrected_image_padded), 2)
     # save_image_2d(output_image, os.path.join(image_directory, f"outputs_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
@@ -185,5 +179,21 @@ def correct_image_slice(skip, zeros, test_output, projectors, image, fbp_recon, 
     # save_image_2d(prior_padded, os.path.join(image_directory, f"prior_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
     # save_image_2d(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
     # save_image_2d(streak_prior, os.path.join(image_directory, f"streak_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
-    return train_projections, diff_ssim_recon, diff_ssim_train
+    return corrected_image, prior, train_projections
 
+def correct_image_slice(test_output, projectors, fbp_recon, train_projections): # image saving mumbo jumbo
+
+    prior = test_output  # [1, h, w, 1]
+
+    projs_prior_full_view = projectors[0].forward_project(prior.transpose(1, 3).squeeze(1))
+    fbp_prior_full_view = projectors[0].backward_project(projs_prior_full_view)
+
+    projs_prior_sparse_view = projectors[1].forward_project(prior.transpose(1, 3).squeeze(1))
+    fbp_prior_sparse_view = projectors[1].backward_project(projs_prior_sparse_view)
+
+    streak_prior = (fbp_prior_sparse_view - fbp_prior_full_view).unsqueeze(1).transpose(1, 3)
+    fbp_prior_sparse_view = fbp_prior_sparse_view.unsqueeze(1).transpose(1, 3)
+
+    corrected_image = fbp_recon - streak_prior
+
+    return corrected_image, prior, train_projections.squeeze().unsqueeze(0)
