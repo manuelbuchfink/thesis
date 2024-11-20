@@ -96,6 +96,18 @@ for it, (grid, image, image_size) in enumerate(data_loader):
 
             continue
 
+        elif image_height < 7: # pad small image slices so that SSIM can be computed
+            height_pad = (7 - image_height)
+            grid = F.pad(grid, (0,0, 0,0, height_pad,height_pad))
+            image = F.pad(image, (0,0, 0,0, height_pad,height_pad))
+            image_height += ((height_pad) * 2)
+
+        elif image_width < 7: # pad small image slices so that SSIM can be computed
+            width_pad = (7 - image_width)
+            grid = F.pad(grid, (0,0, width_pad,width_pad, 0,0))
+            image = F.pad(image, (0,0, width_pad,width_pad, 0,0))
+            image_width += ((width_pad) * 2)
+
         ct_projector_full_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_full_view'])
         ct_projector_sparse_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
         projectors = [ct_projector_full_view, ct_projector_sparse_view]

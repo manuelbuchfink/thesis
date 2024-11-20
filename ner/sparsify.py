@@ -76,3 +76,4 @@ for it, (grid, image) in enumerate(data_loader):
 
 sparse_images = torch.cat(sparse_images, 0)
 torch.save(sparse_images, os.path.join(image_directory, f"fbp_volume.pt"))
+print(f"Time Elpased FBP recon: {(time.time() - start) / 60}")

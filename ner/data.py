@@ -140,9 +140,23 @@ class ImageDataset_2D_hdf5_canny(Dataset):
             cmax = bounding_box[3] + 1 if bounding_box[3] % 2 != 0 else bounding_box[3]
 
             self.slices[i] = torch.tensor(self.slices[i], dtype=torch.float32)[:, :, None] # [h, w, 1]
-            self.slices[i] = self.slices[i][rmin:rmax, cmin:cmax, :]
+
+            if not ((rmax -rmin) == 0 or (cmax - cmin) == 0):
+                while (rmax - rmin) <= 7:
+                    if rmax < 512:
+                        rmax += torch.tensor(1)
+                    elif rmin > 0:
+                        rmin -= torch.tensor(1)
+
+                while (cmax - cmin) <= 7:
+                    if cmax < 512:
+                        cmax += torch.tensor(1)
+                    elif cmin > 0:
+                        cmin -= torch.tensor(1)
 
             self.img_dims[i] =  (rmax, rmin, cmax, cmin)                                   #[h_new, w_new]
+            self.slices[i] = self.slices[i][rmin:rmax, cmin:cmax, :]
+
             img_dim = (self.img_dims[i][0] - self.img_dims[i][1], self.img_dims[i][2] - self.img_dims[i][3])
 
             self.grids[i] = (create_grid(*img_dim))
