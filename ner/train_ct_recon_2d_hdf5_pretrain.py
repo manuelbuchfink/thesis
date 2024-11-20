@@ -71,13 +71,6 @@ prior_images = []
 fbp_images = []
 images = []
 pretrain = False
-skips = 0
-total_its = 0
-serial_skips = 0
-trained_slices = 0
-max_series = 0
-zeros = 0
-previous_projection = None
 for it, (grid, image) in enumerate(data_loader):
     #if it > 245 and it < 250:
         # Input coordinates (h,w) grid and target image
@@ -104,33 +97,10 @@ for it, (grid, image) in enumerate(data_loader):
         Check if sequential slices are similar enough in order to skip training for one step and reuse the previous prior to compute the corrected image
         '''
         if pretrain:
-            fbp_prev = ct_projector_sparse_view.backward_project(previous_projection).unsqueeze(1).transpose(1, 3).to(torch.float16)
-            sequential_ssim = compare_ssim(fbp_prev.transpose(1,3).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
-            print(f"Sequential SSIM = {sequential_ssim}")
+            # Load pretrain model
+            state_dict = reshape_model_weights(image.squeeze().shape[1], image.squeeze().shape[0], config, checkpoint_directory, opts.id)
 
-            if sequential_ssim > config['slice_skip_threshold']:
-                print(f"SSIM passed, skipping training for slice nr. {it + 1}")
-                skip = True
-                skips+=1
-                serial_skips+=1
-                total_its+=1
-                corrected_image, prior, previous_projection = correct_image_slice(train_output, projectors, fbp_recon, train_projections, it, image_directory)
-                corrected_images.append(corrected_image)
-                prior_images.append(prior)
-                fbp_images.append(fbp_recon)
-                images.append(image)
-
-                continue
-            else:
-                max_series = np.maximum(max_series, serial_skips)
-                trained_slices+=1
-                serial_skips=0
-                skip = False
-
-            # # Load pretrain model
-            # state_dict = reshape_model_weights(image.squeeze().shape[1], image.squeeze().shape[0], config, checkpoint_directory, opts.id)
-
-            # model.load_state_dict(state_dict['net'])
+            model.load_state_dict(state_dict['net'])
 
         model.cuda()
         model.train()
@@ -209,25 +179,20 @@ for it, (grid, image) in enumerate(data_loader):
         fbp_images.append(fbp_recon)
         images.append(image)
 
-        print(f"Nr. of skips: {skips}")
-        # # Save current model
-        # model_name = os.path.join(checkpoint_directory, f'temp_model_{opts.id}.pt')
-        # torch.save({'net': model.state_dict(), \
-        #             'enc': encoder.B, \
-        #             'opt': optim.state_dict(), \
-        #             }, model_name)
+        # Save current model
+        model_name = os.path.join(checkpoint_directory, f'temp_model_{opts.id}.pt')
+        torch.save({'net': model.state_dict(), \
+                    'enc': encoder.B, \
+                    'opt': optim.state_dict(), \
+                    }, model_name)
 
         pretrain = True
-        total_its+=1
-        previous_projection = train_projections
 
 images = torch.cat(images, 0)
 corrected_images = torch.cat(corrected_images, 0)
 prior_images = torch.cat(prior_images, 0).squeeze().cpu().detach().numpy()
 fbp_images = torch.cat(fbp_images, 0).squeeze().cpu().detach().numpy()
 print(f"Shapes final: {corrected_images.shape}")
-
-#test_vif = compute_vif(images, corrected_images)
 
 corrected_images = corrected_images.squeeze().cpu().detach().numpy()
 images = images.squeeze().cpu().detach().numpy()
@@ -236,9 +201,10 @@ test_ssim = compare_ssim(images, corrected_images, axis=-1, data_range=1.0)
 test_psnr = psnr(images, corrected_images, data_range=1.0)
 
 print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}, Time: {(end - start) / 60}, Iterations {total_its}")#, VIF: {test_vif}")
-print(f"Trained slices: {trained_slices}, Max Skip series: {max_series}, Skips: {skips}")
-save_volume(fbp_images, image_directory, config, "fbp_volume")
-save_volume(corrected_images, image_directory, config, "corrected_volume")
-save_volume(prior_images, image_directory, config, "prior_volume")
+
+# save_volume(fbp_images, image_directory, config, "fbp_volume")
+# save_volume(corrected_images, image_directory, config, "corrected_volume")
+# save_volume(prior_images, image_directory, config, "prior_volume")
+
 with open('resultmetrics', 'a+')as file:
     file.write(f"{test_ssim}, {test_psnr}, {(end - start) / 60}, ")

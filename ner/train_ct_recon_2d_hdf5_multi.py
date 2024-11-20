@@ -23,10 +23,10 @@ import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 
 
-from ner.FanBeam.ct_2d_projector import FanBeam2DProjector
+from ct_2d_projector import FanBeam2DProjector
 from networks import Positional_Encoder, FFN
 from data import ImageDataset_2D_hdf5_canny
-from utils import get_config, get_sub_folder, get_data_loader_hdf5_canny, reshape_tensor, correct_image_slice, get_image_pads, reshape_model_weights, save_image
+from utils import get_config, prepare_sub_folder, get_data_loader_hdf5, reshape_tensor, correct_image_slice_all, get_image_pads, reshape_model_weights, save_image
 
 from skimage.metrics import structural_similarity as compare_ssim # pylint: disable=import-error
 from skimage.metrics import mean_squared_error  as mse # pylint: disable=import-error
@@ -70,34 +70,34 @@ if not(config['encoder']['embedding'] == 'none'):
 print(model_name)
 
 output_directory = os.path.join(opts.output_path + "/outputs", model_name)
-checkpoint_directory, image_directory = get_sub_folder(output_directory)
+checkpoint_directory, image_directory = prepare_sub_folder(output_directory)
 shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy config file to output folder
 
 # Setup data loader
 print('Load volume: {}'.format(config['img_path']))
-dataset = ImageDataset_2D_hdf5_canny(config['img_path'], parser)
-data_loader = get_data_loader_hdf5_canny(dataset, batch_size=config['batch_size'])
+dataset = ImageDataset_2D_hdf5_canny(config['img_path'], parser, image_directory)
+data_loader = get_data_loader_hdf5(dataset, batch_size=config['batch_size'])
 
 
 pretrain = False
+previous_projection = None
 skip = False
 skips = 0
-previous_projection = None
 total_its = 0
+serial_skips = 0
+trained_slices = 0
+max_series = 0
 zeros = 0
-avg_ssim_recon = 0
-avg_ssim_train = 0
 print(f"start = {opts.start}, end = {opts.end}")
 for it, (grid, image, image_size) in enumerate(data_loader):
     if it >= int(opts.start) and it < int(opts.end):
         # Input coordinates (h,w) grid and target image
         grid = grid.cuda()      # [1, h, w, 2], value range = [0, 1]
         image = image.cuda()    # [1, h, w, 1], value range = [0, 1]
+
         '''
         compute image height and image width with canny edge pipeline
         '''
-
-        # print(f"canny shape {canny_volume.shape}")
         image_height = int(image_size[0][0] - image_size[1][0]) # 00 rmax, 01 rmin, 02 cmax, 03 cmin
         image_width = int(image_size[2][0] - image_size[3][0])
 
@@ -106,8 +106,22 @@ for it, (grid, image, image_size) in enumerate(data_loader):
         if image_height == 0 or image_width == 0: # skip emty images
             skip_image = torch.zeros(1, 512, 512, 1).to(torch.float16)
             torch.save(skip_image, os.path.join(image_directory, f"corrected_slice_{it + 1}.pt"))
+            torch.save(skip_image, os.path.join(image_directory, f"prior_slice_{it + 1}.pt"))
+            skips+=1
             zeros+=1
             continue
+
+        elif image_height < 7: # pad small image slices so that SSIM can be computed
+            height_pad = (7 - image_height)
+            grid = F.pad(grid, (0,0, 0,0, height_pad,height_pad))
+            image = F.pad(image, (0,0, 0,0, height_pad,height_pad))
+            image_height += ((height_pad) * 2)
+
+        elif image_width < 7: # pad small image slices so that SSIM can be computed
+            width_pad = (7 - image_width)
+            grid = F.pad(grid, (0,0, width_pad,width_pad, 0,0))
+            image = F.pad(image, (0,0, width_pad,width_pad, 0,0))
+            image_width += ((width_pad) * 2)
 
         ct_projector_full_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_full_view'])
         ct_projector_sparse_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
@@ -129,24 +143,27 @@ for it, (grid, image, image_size) in enumerate(data_loader):
         Check if sequential slices are similar enough in order to skip training for one step and reuse the previous prior to compute the corrected image
         '''
         if pretrain:
+
             fbp_prev = ct_projector_sparse_view.backward_project(previous_projection).unsqueeze(1).transpose(1, 3).to(torch.float16)
             sequential_ssim = compare_ssim(fbp_prev.transpose(1,3).squeeze().cpu().detach().numpy(), fbp_recon.transpose(1,3).squeeze().cpu().numpy(), multichannel=True, data_range=1.0)
             print(f"Sequential SSIM = {sequential_ssim}")
-
             if sequential_ssim > config['slice_skip_threshold']:
                 print(f"SSIM passed, skipping training for slice nr. {it + 1}")
                 skip = True
                 skips+=1
-                previous_image, ssim_recon, ssim_train = correct_image_slice(skip, zeros, train_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config)
-                avg_ssim_recon += ssim_recon
-                avg_ssim_train += ssim_train
+                serial_skips+=1
+                total_its+=1
+                corrected_image, prior, train_projections = correct_image_slice_all(skip, train_output, projectors, image, fbp_recon, train_projections, pads, it, image_directory, config)
+
                 continue
             else:
+                max_series = np.maximum(max_series, serial_skips)
+                trained_slices+=1
+                serial_skips=0
                 skip = False
 
             # Load pretrain model
             state_dict = reshape_model_weights(image_height, image_width, config, checkpoint_directory, opts.id)
-
             model.load_state_dict(state_dict['net'])
 
 
@@ -177,6 +194,7 @@ for it, (grid, image, image_size) in enumerate(data_loader):
 
             # Compute ssim
             if (iterations + 1) % config['val_iter'] == 0:
+
                 if config['eval']:
                     model.eval()
                     with torch.no_grad():
@@ -207,20 +225,19 @@ for it, (grid, image, image_size) in enumerate(data_loader):
 
                 # get prior image once training is finished
                 if test_ssim > config['accuracy_goal']: # stop early if accuracy is above threshold
-                    previous_projection, ssim_recon, ssim_train  = correct_image_slice(skip, zeros, train_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config)
-                    avg_ssim_recon += ssim_recon
-                    avg_ssim_train += ssim_train
+                    corrected_image, prior, train_projections  = correct_image_slice_all(skip, train_output, projectors, image, fbp_recon, train_projections, pads, it, image_directory, config)
+
                     break
 
                 if (iterations + 1) == max_iter:
-                    previous_projection, ssim_recon, ssim_train  = correct_image_slice(skip, zeros, train_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config)
-                    avg_ssim_recon += ssim_recon
-                    avg_ssim_train += ssim_train
+                    corrected_image, prior, train_projections  = correct_image_slice_all(skip, train_output, projectors, image, fbp_recon, train_projections, pads, it, image_directory, config)
+
 
             total_its+=1
 
 
         print(f"Nr. of skips: {skips}")
+        print(f"Time Elapsed: {(end- start) / 60}")
        # print(f"avg ssim TRAIN: {avg_ssim_train /512}, avg ssim RECON: {avg_ssim_recon /512}")
         # Save current model
         model_name = os.path.join(checkpoint_directory, f'temp_model_{opts.id}.pt')
@@ -230,3 +247,5 @@ for it, (grid, image, image_size) in enumerate(data_loader):
                     }, model_name)
 
         pretrain = True
+        previous_projection = train_projections
+        total_its+=1

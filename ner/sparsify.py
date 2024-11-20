@@ -65,7 +65,7 @@ for it, (grid, image) in enumerate(data_loader):
 
         # Input coordinates (h,w) grid and target image
         image = image.cuda()    # [1, h, w, 1], value range = [0, 1]
-
+        torch.save(image, os.path.join(image_directory, f"image_{it + 1}.pt"))
         ct_projector_sparse_view = FanBeam2DProjector(512, 512, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
 
         projections = ct_projector_sparse_view.forward_project(image.transpose(1, 3).squeeze(1))     # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]

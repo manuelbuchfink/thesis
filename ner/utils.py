@@ -140,7 +140,7 @@ def save_volume(volume, image_directory, config, name):
         save_image(torch.tensor(slices_sparse[i], dtype=torch.float32), f"./u_{name}/image from saved volume, slice Nr. {i}.png")
     print(f"image: {name} saved")
 
-def correct_image_slice(skip, zeros, test_output, projectors, image, fbp_recon, train_projections, pads, it, iterations, image_directory, config): # image saving mumbo jumbo
+def correct_image_slice_all(skip, test_output, projectors, image, fbp_recon, train_projections, pads, it, image_directory, config): # image saving mumbo jumbo
     '''
 
     Compute Corrected image
@@ -162,8 +162,9 @@ def correct_image_slice(skip, zeros, test_output, projectors, image, fbp_recon, 
 
 
     corrected_image_padded = F.pad(corrected_image, (0,0, pads[2],pads[3], pads[0],pads[1]))
-    #save_image_2d(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
+    prior_image_padded = F.pad(prior, (0,0, pads[2],pads[3], pads[0],pads[1]))
     torch.save(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}.pt"))
+    torch.save(prior_image_padded, os.path.join(image_directory, f"prior_slice_{it + 1}.pt"))
 
     #fbp_padded = F.pad(fbp_recon, (0,0, pads[2],pads[3], pads[0],pads[1]))
     # prior_padded = F.pad(prior, (0,0, pads[2],pads[3], pads[0],pads[1]))
@@ -173,12 +174,6 @@ def correct_image_slice(skip, zeros, test_output, projectors, image, fbp_recon, 
     train_pad = int((config['img_size'] - config['num_proj_sparse_view']) / 2)
     train_projections_padded = F.pad(train_projections, (0,0, train_pad,train_pad)).unsqueeze(3)
 
-    # output_image =  torch.cat(((train_projections_padded / torch.max(train_projections_padded)), fbp_padded, prior_padded,  corrected_image_padded), 2)
-    # save_image_2d(output_image, os.path.join(image_directory, f"outputs_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
-    # save_image_2d(fbp_padded, os.path.join(image_directory, f"fbp_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
-    # save_image_2d(prior_padded, os.path.join(image_directory, f"prior_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
-    # save_image_2d(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
-    # save_image_2d(streak_prior, os.path.join(image_directory, f"streak_slice_{it + 1}_iter_{iterations + 1}_SSIM_{diff_ssim_train}.png"))
     return corrected_image, prior, train_projections
 
 def correct_image_slice(test_output, projectors, fbp_recon, train_projections): # image saving mumbo jumbo

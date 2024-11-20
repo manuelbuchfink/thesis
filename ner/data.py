@@ -107,6 +107,7 @@ class ImageDataset_2D_hdf5_canny(Dataset):
         config = get_config(opts.config)
         image = torch.load(os.path.join(image_directory, f"fbp_volume.pt")).cuda()
         print(f"vol shape {image.shape}")
+        image = image.squeeze().cpu().detach().numpy()
         self.img_dim = (image.shape[2], image.shape[1])
         num_slices = image.shape[0]
 

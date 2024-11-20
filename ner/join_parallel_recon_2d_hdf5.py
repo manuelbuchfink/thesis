@@ -26,7 +26,7 @@ from skimage.metrics import mean_squared_error  as mse # pylint: disable=import-
 from skimage.metrics import peak_signal_noise_ratio as psnr
 
 
-from utils import get_config, get_sub_folder, save_image, save_volume
+from utils import get_config, prepare_sub_folder, save_image, save_volume
 
 warnings.filterwarnings("ignore")
 
@@ -57,7 +57,7 @@ if not(config['encoder']['embedding'] == 'none'):
 print(model_name)
 
 output_directory = os.path.join(opts.output_path + "/outputs", model_name)
-checkpoint_directory, image_directory = get_sub_folder(output_directory)
+checkpoint_directory, image_directory = prepare_sub_folder(output_directory)
 shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy config file to output folder
 
 
@@ -70,22 +70,21 @@ LOAD IMAGE SLICES INTO CORRECTED_IMAGES AND SPARSE_IMAGES FROM FILE
 
 corrected_images = []
 prior_images = []
-fbp_images = []
+
 images = []
-for i in range(1, len(os.listdir(image_directory)) / 4 + 1):
+for i in range(1, 128 + 1):
     corrected_images.append(torch.load(os.path.join(image_directory, f'corrected_slice_{i}.pt')).cuda())
     prior_images.append(torch.load(os.path.join(image_directory, f'prior_slice_{i}.pt')).cuda())
-    fbp_images.append(torch.load(os.path.join(image_directory, f'fbp_slice_{i}.pt')).cuda())
-    images.append(torch.load(os.path.join(image_directory, f'image_slice_{i}.pt')).cuda())
+    images.append(torch.load(os.path.join(image_directory, f'image_{i}.pt')).cuda())
 
 
 images = torch.cat(images, 0)
 corrected_images = torch.cat(corrected_images, 0)
 prior_images = torch.cat(prior_images, 0).squeeze().cpu().detach().numpy()
-fbp_images = torch.cat(fbp_images, 0).squeeze().cpu().detach().numpy()
+fbp_images = torch.load(os.path.join(image_directory, "fbp_volume.pt")).squeeze().cpu().detach().numpy()
 
 
-test_vif = compute_vif(images, corrected_images)
+#test_vif = compute_vif(images, corrected_images)
 
 corrected_images = corrected_images.squeeze().cpu().detach().numpy()
 images = images.squeeze().cpu().detach().numpy()
@@ -93,8 +92,8 @@ test_mse = mse(images, corrected_images)
 test_ssim = compare_ssim(images, corrected_images, axis=-1, data_range=1.0)
 test_psnr = psnr(images, corrected_images, data_range=1.0)
 
-print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}, VIF: {test_vif}")
+print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}, Time: {(time.time() - start) / 60}")#, VIF: {test_vif}")
 
-# save_volume(fbp_images, image_directory, config, "fbp_volume")
-# save_volume(corrected_images, image_directory, config, "corrected_volume")
-# save_volume(prior_images, image_directory, config, "prior_volume")
+save_volume(fbp_images, image_directory, config, "fbp_volume")
+save_volume(corrected_images, image_directory, config, "corrected_volume")
+save_volume(prior_images, image_directory, config, "prior_volume")

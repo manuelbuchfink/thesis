@@ -14,7 +14,7 @@ import shutil
 import gc
 import warnings
 import numpy as np
-
+import time
 import torch # pylint: disable=import-error
 import torch.backends.cudnn as cudnn # pylint: disable=import-error
 import torch.nn.functional as F # pylint: disable=import-error
@@ -72,41 +72,41 @@ for it, (grid, image, image_size) in enumerate(data_loader):
     # Input coordinates (h,w) grid and target image
     grid = grid.cuda()      # [1, h, w, 2], value range = [0, 1]
     image = image.cuda()    # [1, h, w, 1], value range = [0, 1]
+    torch.save(image, os.path.join(image_directory, f"image_{it + 1}.pt"))
+#     image_height = int(image_size[0][0] - image_size[1][0]) # 00 rmax, 01 rmin, 02 cmax, 03 cmin
+#     image_width = int(image_size[2][0] - image_size[3][0])
 
-    image_height = int(image_size[0][0] - image_size[1][0]) # 00 rmax, 01 rmin, 02 cmax, 03 cmin
-    image_width = int(image_size[2][0] - image_size[3][0])
+#     pads = get_image_pads(image_size, config) # pads: rt, rb, cl,  cr
 
-    pads = get_image_pads(image_size, config) # pads: rt, rb, cl,  cr
+#     if image_height == 0 or image_width == 0: # skip emty images
+#         skip_image = torch.zeros(1, 512, 512)
+#         fbp_volume.append(skip_image.cuda())
+#         continue
 
-    if image_height == 0 or image_width == 0: # skip emty images
-        skip_image = torch.zeros(1, 512, 512)
-        fbp_volume.append(skip_image.cuda())
-        continue
+#     ct_projector_full_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_full_view'])
+#     ct_projector_sparse_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
+#     projectors = [ct_projector_full_view, ct_projector_sparse_view]
 
-    ct_projector_full_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_full_view'])
-    ct_projector_sparse_view = FanBeam2DProjector(image_height=image_height, image_width=image_width, proj_size=config['proj_size'], num_proj=config['num_proj_sparse_view'])
-    projectors = [ct_projector_full_view, ct_projector_sparse_view]
+#     projections = ct_projector_sparse_view.forward_project(image.transpose(1, 3).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
+#     fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
 
-    projections = ct_projector_sparse_view.forward_project(image.transpose(1, 3).squeeze(1))    # [1, h, w, 1] -> [1, 1, w, h] -> ([1, w, h]) -> [1, num_proj_sparse_view, original_image_size]
-    fbp_recon= ct_projector_sparse_view.backward_project(projections)                           # ([1, num_proj_sparse_view, original_image_size]) -> [1, w, h]
+#     fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 3)
+#     fbp_padded = F.pad(fbp_recon, (0,0, pads[2],pads[3], pads[0],pads[1]))# [1, h, w, 1]
+#     fbp_volume.append(fbp_padded.squeeze(3).cuda())
 
-    fbp_recon = fbp_recon.unsqueeze(1).transpose(1, 3)
-    fbp_padded = F.pad(fbp_recon, (0,0, pads[2],pads[3], pads[0],pads[1]))# [1, h, w, 1]
-    fbp_volume.append(fbp_padded.squeeze(3).cuda())
+# # save corrected slices in new hdf5 Volume
+# fbp_volume_path = os.path.join(image_directory, f"../{config['data'][:-3]}_fbp_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
+# print(f"saved to {config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
+# fbp_volume = torch.cat(fbp_volume, 0)
+# fbp_volume = fbp_volume.cpu().detach().numpy()
 
-# save corrected slices in new hdf5 Volume
-fbp_volume_path = os.path.join(image_directory, f"../{config['data'][:-3]}_fbp_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
-print(f"saved to {config['data'][:-3]}_corrected_with_{config['num_proj_sparse_view']}_projections_t{config['slice_skip_threshold']}_skip_t_{config['accuracy_goal']}_accuracy.hdf5")
-fbp_volume = torch.cat(fbp_volume, 0)
-fbp_volume = fbp_volume.cpu().detach().numpy()
-
-gridSpacing=[5.742e-05, 5.742e-05, 5.742e-05]
-gridOrigin=[0, 0 ,0]
-with h5py.File(fbp_volume_path,'w') as hdf5:
-    hdf5.create_dataset("Type", data=[86,111,108,117,109,101], shape=(6,1))
-    hdf5.create_dataset("GridOrigin", data=gridOrigin, shape=(3,1))
-    hdf5.create_dataset("GridSpacing", data=gridSpacing, shape=(3,1))
-    hdf5.create_dataset("Volume", data=np.asarray(fbp_volume))
+# gridSpacing=[5.742e-05, 5.742e-05, 5.742e-05]
+# gridOrigin=[0, 0 ,0]
+# with h5py.File(fbp_volume_path,'w') as hdf5:
+#     hdf5.create_dataset("Type", data=[86,111,108,117,109,101], shape=(6,1))
+#     hdf5.create_dataset("GridOrigin", data=gridOrigin, shape=(3,1))
+#     hdf5.create_dataset("GridSpacing", data=gridSpacing, shape=(3,1))
+#     hdf5.create_dataset("Volume", data=np.asarray(fbp_volume))
 
 
 # fbp_volume = h5py.File(fbp_volume_path, 'r')
