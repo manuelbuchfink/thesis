@@ -98,7 +98,6 @@ for it, (grid, image, image_size) in enumerate(data_loader):
         compute image height and image width with canny edge pipeline
         '''
 
-        # print(f"canny shape {canny_volume.shape}")
         image_height = int(image_size[0][0] - image_size[1][0]) # 00 rmax, 01 rmin, 02 cmax, 03 cmin
         image_width = int(image_size[2][0] - image_size[3][0])
 
@@ -224,7 +223,8 @@ for it, (grid, image, image_size) in enumerate(data_loader):
             total_its+=1
 
 
-        print(f"Nr. of skips: {skips}")
+        print(f"Nr. of skips_{opts.id}: {skips}")
+        print(f"Nr. of zeros_{opts.id}: {zeros}")
         print(f"Time Elapsed: {(end- start) / 60}")
        # print(f"avg ssim TRAIN: {avg_ssim_train /512}, avg ssim RECON: {avg_ssim_recon /512}")
         # Save current model

@@ -72,7 +72,7 @@ fbp_images = []
 images = []
 pretrain = False
 for it, (grid, image) in enumerate(data_loader):
-    #if it > 245 and it < 250:
+    if it > 253 and it < 256:
         # Input coordinates (h,w) grid and target image
         grid = grid.cuda()      # [1, h, w, 2], value range = [0, 1]
         image = image.cuda()    # [1, h, w, 1], value range = [0, 1]

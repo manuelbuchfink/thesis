@@ -57,7 +57,6 @@ def get_image_pads(image_size, config):
     rt: top of center  rb: bottom of center
     cl: left of center   cr: right of center
     '''
-    print(image_size)
     fbp_pad_rt = int((image_size[1][0] - 1))
     fbp_pad_rb = int((config['img_size'] - (image_size[0][0] - 1)))
     fbp_pad_cl = int((image_size[3][0] - 1))
@@ -161,12 +160,12 @@ def correct_image_slice_all(skip, test_output, projectors, image, fbp_recon, tra
 
     corrected_image = fbp_recon - streak_prior
 
-    if not (corrected_image.squeeze().shape[0] == 512 and corrected_image.squeeze().shape[1] == 512):
-        corrected_image_padded = F.pad(corrected_image, (0,0, pads[2],pads[3], pads[0],pads[1]))
-        print(f"corr before {corrected_image.shape}, corr after {corrected_image_padded.shape}")
-        prior_image_padded = F.pad(prior, (0,0, pads[2],pads[3], pads[0],pads[1]))
-        torch.save(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}.pt"))
-        torch.save(prior_image_padded, os.path.join(image_directory, f"prior_slice_{it + 1}.pt"))
+
+    corrected_image_padded = F.pad(corrected_image, (0,0, pads[2],pads[3], pads[0],pads[1]))
+
+    prior_image_padded = F.pad(prior, (0,0, pads[2],pads[3], pads[0],pads[1]))
+    torch.save(corrected_image_padded, os.path.join(image_directory, f"corrected_slice_{it + 1}.pt"))
+    torch.save(prior_image_padded, os.path.join(image_directory, f"prior_slice_{it + 1}.pt"))
 
     #fbp_padded = F.pad(fbp_recon, (0,0, pads[2],pads[3], pads[0],pads[1]))
     # prior_padded = F.pad(prior, (0,0, pads[2],pads[3], pads[0],pads[1]))

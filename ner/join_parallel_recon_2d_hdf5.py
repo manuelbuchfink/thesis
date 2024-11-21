@@ -72,7 +72,7 @@ corrected_images = []
 prior_images = []
 
 images = []
-for i in range(1, 128 + 1):
+for i in range(1, 512 + 1):
     corrected_images.append(torch.load(os.path.join(image_directory, f'corrected_slice_{i}.pt')).cuda())
     prior_images.append(torch.load(os.path.join(image_directory, f'prior_slice_{i}.pt')).cuda())
     images.append(torch.load(os.path.join(image_directory, f'image_{i}.pt')).cuda())
@@ -97,3 +97,5 @@ print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}, Time: {(tim
 save_volume(fbp_images, image_directory, config, "fbp_volume")
 save_volume(corrected_images, image_directory, config, "corrected_volume")
 save_volume(prior_images, image_directory, config, "prior_volume")
+with open('resultmetrics', 'a+')as file:
+    file.write(f"{test_ssim}, {test_psnr}, {(time.time() - start) / 60}, ")
