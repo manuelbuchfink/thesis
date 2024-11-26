@@ -225,6 +225,7 @@ for it, (grid, image, image_size) in enumerate(data_loader):
 
         print(f"Nr. of skips_{opts.id}: {skips}")
         print(f"Nr. of zeros_{opts.id}: {zeros}")
+        print(f"Nr. of total_iterations_{opts.id}: {total_its}")
         print(f"Time Elapsed: {(end- start) / 60}")
        # print(f"avg ssim TRAIN: {avg_ssim_train /512}, avg ssim RECON: {avg_ssim_recon /512}")
         # Save current model

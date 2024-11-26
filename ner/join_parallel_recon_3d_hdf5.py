@@ -103,9 +103,11 @@ streak_volume = streak_volume.squeeze().cuda().cpu().float().detach().numpy()
 save_volume(fbp_volume, image_directory, config, "fbp_volume")
 save_volume(corrected_volume, image_directory, config, "corrected_volume")
 save_volume(prior_volume, image_directory, config, "prior_volume")
-save_volume(streak_volume, image_directory, config, "streak_volume")
+# save_volume(streak_volume, image_directory, config, "streak_volume")
 
 test_mse = mse(image, corrected_volume)
 test_ssim = compare_ssim(image, corrected_volume, axis=-1, data_range=1.0)
 test_psnr = psnr(image, corrected_volume, data_range=1.0)
 print(f"FINAL SSIM: {test_ssim}, MSE: {test_mse}, PSNR: {test_psnr}")
+with open('resultmetrics', 'a+') as file:
+    file.write(f"{test_ssim}, {test_psnr}, {(time.time() - start) / 60}, ")

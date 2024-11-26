@@ -70,7 +70,7 @@ prior_images = []
 fbp_images = []
 images = []
 for it, (grid, image) in enumerate(data_loader):
-    if it > 254 and it < 256:
+    if it > 256 and it < 258:
         # Input coordinates (h,w) grid and target image
         grid = grid.cuda()      # [1, h, w, 2], value range = [0, 1]
         image = image.cuda()    # [1, h, w, 1], value range = [0, 1]
@@ -168,6 +168,7 @@ for it, (grid, image) in enumerate(data_loader):
         save_image_2d(fbp_recon, os.path.join(checkpoint_directory, f"FBP_volume.png"))
         save_image_2d(corrected_image, os.path.join(checkpoint_directory, f"corrected_volume.png"))
         save_image_2d(prior, os.path.join(checkpoint_directory, f"prior_volume.png"))
+        save_image_2d(image, os.path.join(checkpoint_directory, f"image_{it}.png"))
 
         corrected_images.append(corrected_image)
         prior_images.append(prior)
