@@ -1,0 +1,44 @@
+# Logger options
+log_iter: 100                  # How often to log the training loss
+val_iter: 100                  # How often to validate testing and save output images during training
+description:
+eval: false
+# Optimization options
+max_iter: 3000                 # Maximum number of training iterations
+batch_size: 1                  # Batch size TODO: Minibatches S = (i, k) i: detector cell, k: view
+loss: L2                       # Mean Squared Error
+optimizer: Adam                # Optimizer for trainings
+weight_decay: 0.0              # Weight decay
+beta1: 0.9                     # Adam parameter
+beta2: 0.999                   # Adam parameter
+lr: 0.0001                     # Initial learning rate
+
+# Model options
+model: FFN                     # Feed Forward Network (Fully Connected Layers with ReLU activations and sigmoid output)
+net:
+  network_input_size: 512      # Input size for network
+  network_output_size: 1
+  network_depth: 8             # Depth of MLP layers
+  network_width: 128           # Width of MLP layers
+
+encoder:
+  embedding: gauss             # Input embedding method fourier feautre mapping y(v) = [cos(2*pi*B*v), sin(2*pi*B*v)], B is sampled from Gaussian distribution N(0,sigma²)
+  scale: 3                     # scale =standard deviation sigma
+  embedding_size: 256          # Embedding size for input Fourier feature encoding # 128 in paper
+  coordinates_size: 3
+
+proj_size: [512, 512]          # size of reconstructed projection matrix
+num_proj_full_view: 1024       # Number of projections of full view CT scan
+num_proj_sparse_view: 32       # Number of projections for CT recon
+
+down_sample_factor: 3
+#Data
+data: rand_1024projs_7.h5
+#data: volume_GT_1200Proj.hdf5
+fbp_img_size: [512, 512, 512]  # full volume size
+img_size: [128, 128, 128]      # training batch size down-sampled
+dataset_size: [512, 128, 128]  # dataset size downsampled
+img_full_size: [128, 512, 512] # training batch size up-sampled
+#img_path: '../../lgrp/edu-2024-1-bsc-buchfiml/64_projections_volume.hdf5'
+img_path: '../../lgrp/edu-2024-1-bsc-buchfiml/shapes_sparse_view/rand_1024projs_7.h5'
+#img_path: '../../lgrp/edu-2024-1-bsc-buchfiml/AmmarResults/volume_GT_1200Proj.hdf5'
