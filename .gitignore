@@ -13,3 +13,5 @@
 !multi_*
 !test*
 !ner/configs/*
+!scripts
+!old_code
